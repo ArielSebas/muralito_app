@@ -230,7 +230,7 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
                                   ),
                                 );
                               },
-                              errorBuilder: (_, __, ___) => Container(
+                              errorBuilder: (_, _, _) => Container(
                                 color: Colors.grey[200],
                                 child: const Column(
                                   mainAxisAlignment: MainAxisAlignment.center,

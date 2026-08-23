@@ -1,38 +1,47 @@
 # 🎨 Muralito App
 
-Aplicación móvil multiplataforma desarrollada en **Flutter** para el mapeo colaborativo, geolocalización y preservación digital del arte urbano y murales locales utilizando **OpenStreetMap** y **Supabase**.
+Aplicación móvil en **Flutter (Android)** para el mapeo colaborativo de arte urbano: captura foto, ubicación GPS, subida a Supabase y visualización en mapa **OpenStreetMap**.
 
 ---
 
-## 🚀 Características Principales
+## Características actuales
 
-* **Mapa Interactivo:** Visualización fluida de mapas vectoriales/rasterizados con OpenStreetMap (`flutter_map`).
-* **Geolocalización Automática:** Detección de coordenadas GPS en tiempo real para el registro exacto de cada obra de arte.
-* **Captura y Compresión:** Integración de cámara nativa con optimización de imágenes antes del guardado.
-* **Backend Serverless:** Almacenamiento de datos relacionales y buckets públicos de fotos mediante Supabase (PostgreSQL).
+- Mapa interactivo con OpenStreetMap (`flutter_map`)
+- Registro de murales: cámara → GPS → formulario → compresión → Storage + BD
+- Marcadores en el mapa
+- Ficha de detalle (bottom sheet): foto, título, descripción, coordenadas y **Cómo llegar**
+- Backend serverless con Supabase (PostgreSQL + Storage)
 
----
-
-## 🛠️ Stack Tecnológico
-
-| Capa / Componente | Tecnología |
-| :--- | :--- |
-| **Framework Móvil** | Flutter (Dart SDK 3.47+) |
-| **Motor de Mapas** | `flutter_map` + `latlong2` (OpenStreetMap Tile Server) |
-| **Backend & Base de Datos** | Supabase (PostgreSQL + Row Level Security) |
-| **Almacenamiento de Archivos**| Supabase Storage (Public Buckets) |
-| **Hardware & Sensores** | `geolocator` (GPS), `image_picker` (Cámara) |
+### En progreso / pendientes
+- Clustering de marcadores cercanos
+- Corrección de orientación de fotos (horizontal)
+- Abrir “Cómo llegar” en Google Maps
+- Mejora del flujo de permisos de ubicación
+- Ajustar pin en el mapa antes de guardar
 
 ---
 
-## 📋 Estructura del Proyecto
+## Stack
+
+| Capa | Tecnología |
+|------|------------|
+| Framework | Flutter / Dart |
+| Mapa | `flutter_map` + `latlong2` |
+| GPS | `geolocator` |
+| Cámara | `image_picker` |
+| Compresión | `flutter_image_compress` |
+| Backend | Supabase (`supabase_flutter`) |
+| Config | `flutter_dotenv` |
+| Enlaces | `url_launcher` |
+
+---
+
+## Estructura del proyecto
 
 ```text
 muralito_app/
-├── android/               # Configuración nativa de Android y permisos (GPS/Cámara)
+├── android/                    # Permisos nativos (GPS, cámara, internet)
 ├── lib/
-│   ├── main.dart          # Inicialización de Supabase y punto de entrada
-│   ├── models/            # Modelo de datos para Mural
-│   ├── services/          # Conexión con Supabase y subida de archivos
-│   └── views/             # Pantalla de Mapa y Formulario de nuevo mural
-└── pubspec.yaml           # Gestión de dependencias y assets
+│   └── main.dart               # App, modelo Mural, mapa, formulario y subida
+├── .env                        # SUPABASE_URL y SUPABASE_ANON_KEY (no subir a git)
+└── pubspec.yaml
