@@ -140,37 +140,224 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
     }
   }
 
-  /// Construye la lista de marcadores para flutter_map
+  /// Distancia máxima (en metros) entre dos murales para considerarlos
+  /// parte del mismo cluster. Ajustable según qué tan "cercanos" deban estar.
+  static const double _radioClusterMetros = 30;
+
+  /// Agrupa los murales cuya distancia real (GPS) sea menor o igual al
+  /// radio definido en [_radioClusterMetros]. Un grupo de un solo mural
+  /// se representa luego como pin individual; de dos o más, como cluster.
+  List<List<Mural>> _agruparMuralesCercanos() {
+    const Distance calculadora = Distance();
+    final List<Mural> pendientes = List.of(_murales);
+    final List<List<Mural>> grupos = [];
+
+    while (pendientes.isNotEmpty) {
+      final Mural base = pendientes.removeAt(0);
+      final List<Mural> grupo = [base];
+
+      pendientes.removeWhere((mural) {
+        final double metros = calculadora(
+          LatLng(base.latitud, base.longitud),
+          LatLng(mural.latitud, mural.longitud),
+        );
+        if (metros <= _radioClusterMetros) {
+          grupo.add(mural);
+          return true;
+        }
+        return false;
+      });
+
+      grupos.add(grupo);
+    }
+
+    return grupos;
+  }
+
+  /// Calcula el punto central (promedio) de un grupo de murales.
+  LatLng _centroDelGrupo(List<Mural> grupo) {
+    final double lat =
+        grupo.map((m) => m.latitud).reduce((a, b) => a + b) / grupo.length;
+    final double lng =
+        grupo.map((m) => m.longitud).reduce((a, b) => a + b) / grupo.length;
+    return LatLng(lat, lng);
+  }
+
+  /// Construye la lista de marcadores para flutter_map, agrupando en
+  /// clusters los murales que estén muy cerca entre sí.
   List<Marker> _buildMarkers() {
-    return _murales.map((mural) {
-      return Marker(
-        point: LatLng(mural.latitud, mural.longitud),
-        width: 50,
-        height: 50,
-        child: GestureDetector(
-          onTap: () => _mostrarDetalleMural(mural),
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.deepPurple,
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white, width: 3),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.3),
-                  blurRadius: 8,
-                  offset: const Offset(0, 3),
-                ),
-              ],
-            ),
-            child: const Icon(
-              Icons.brush,
-              color: Colors.white,
-              size: 24,
-            ),
+    final List<List<Mural>> grupos = _agruparMuralesCercanos();
+
+    return grupos.map((grupo) {
+      if (grupo.length == 1) {
+        final mural = grupo.first;
+        return Marker(
+          point: LatLng(mural.latitud, mural.longitud),
+          width: 50,
+          height: 50,
+          child: GestureDetector(
+            onTap: () => _mostrarDetalleMural(mural),
+            child: _pinMural(),
           ),
+        );
+      }
+
+      return Marker(
+        point: _centroDelGrupo(grupo),
+        width: 54,
+        height: 54,
+        child: GestureDetector(
+          onTap: () {
+            _zoomHaciaGrupo(grupo);
+            _mostrarGrupoMurales(grupo);
+          },
+          child: _pinCluster(grupo.length),
         ),
       );
     }).toList();
+  }
+
+  /// Acerca el mapa hacia el centro de un grupo de murales al tocar su
+  /// cluster. Como el agrupamiento es por distancia GPS real (no por
+  /// píxeles), el zoom no separa los pines si siguen dentro del radio de
+  /// [_radioClusterMetros]; esto solo da contexto visual de la zona antes
+  /// de abrir la lista seleccionable.
+  void _zoomHaciaGrupo(List<Mural> grupo) {
+    final LatLng centro = _centroDelGrupo(grupo);
+    final double zoomActual = _mapController.camera.zoom;
+    final double nuevoZoom = (zoomActual + 2).clamp(0.0, 19.0);
+    _mapController.move(centro, nuevoZoom);
+  }
+
+  /// Pin morado con ícono de pincel para un mural individual (mismo estilo
+  /// visual que se usaba antes de introducir el clustering).
+  Widget _pinMural() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.deepPurple,
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white, width: 3),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.3),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: const Icon(
+        Icons.brush,
+        color: Colors.white,
+        size: 24,
+      ),
+    );
+  }
+
+  /// Pin de cluster: círculo morado con la cantidad de murales agrupados.
+  /// El tono se oscurece un poco si el grupo es más grande, como pista
+  /// visual rápida para el usuario.
+  Widget _pinCluster(int cantidad) {
+    final Color color = cantidad < 5
+        ? Colors.deepPurple
+        : cantidad < 10
+            ? Colors.deepPurple[700]!
+            : Colors.deepPurple[900]!;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: color,
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white, width: 3),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.3),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Center(
+        child: Text(
+          cantidad.toString(),
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 16,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Muestra una lista con los murales de un cluster para que el usuario
+  /// elija cuál quiere ver en detalle (cubre el caso de murales tan cercanos
+  /// que ni haciendo zoom se separan visualmente).
+  void _mostrarGrupoMurales(List<Mural> grupo) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            children: [
+              Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                child: Text(
+                  '${grupo.length} murales en este punto',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              ...grupo.map((mural) {
+                return ListTile(
+                  leading: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: SizedBox(
+                      width: 48,
+                      height: 48,
+                      child: mural.fotoUrl != null && mural.fotoUrl!.isNotEmpty
+                          ? Image.network(
+                              mural.fotoUrl!,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, _, _) => Container(
+                                color: Colors.grey[200],
+                                child: const Icon(Icons.broken_image_outlined,
+                                    color: Colors.grey),
+                              ),
+                            )
+                          : Container(
+                              color: Colors.grey[200],
+                              child: const Icon(
+                                  Icons.image_not_supported_outlined,
+                                  color: Colors.grey),
+                            ),
+                    ),
+                  ),
+                  title: Text(mural.titulo),
+                  subtitle: mural.descripcion != null &&
+                          mural.descripcion!.trim().isNotEmpty
+                      ? Text(
+                          mural.descripcion!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        )
+                      : null,
+                  onTap: () {
+                    Navigator.of(ctx).pop();
+                    _mostrarDetalleMural(mural);
+                  },
+                );
+              }),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   /// Muestra un diálogo con los detalles del mural seleccionado
