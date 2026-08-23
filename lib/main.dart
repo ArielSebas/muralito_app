@@ -8,6 +8,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -173,57 +174,209 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
   }
 
   /// Muestra un diálogo con los detalles del mural seleccionado
+  /// Ficha de detalle del mural (bottom sheet).
+  /// Siempre muestra título, descripción y coordenadas aunque la foto falle.
   void _mostrarDetalleMural(Mural mural) {
-    showDialog(
+    showModalBottomSheet(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(mural.titulo),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (mural.fotoUrl != null && mural.fotoUrl!.isNotEmpty)
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Image.network(
-                    mural.fotoUrl!,
-                    height: 200,
-                    width: double.infinity,
-                    fit: BoxFit.cover,
-                     errorBuilder: (_, _, _) => Container(
-                      height: 200,
-                      color: Colors.grey[300],
-                      child: const Center(child: Icon(Icons.broken_image)),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.72,
+          minChildSize: 0.45,
+          maxChildSize: 0.95,
+          expand: false,
+          builder: (context, scrollController) {
+            return Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              child: ListView(
+                controller: scrollController,
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+                children: [
+                  // Handle
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 5,
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(10),
+                      ),
                     ),
                   ),
-                ),
-              const SizedBox(height: 12),
-              if (mural.descripcion != null && mural.descripcion!.isNotEmpty)
-                Text(
-                  mural.descripcion!,
-                  style: const TextStyle(fontSize: 14),
-                ),
-              const SizedBox(height: 8),
-              Text(
-                '📍 Lat: ${mural.latitud.toStringAsFixed(5)}, '
-                'Lng: ${mural.longitud.toStringAsFixed(5)}',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey[600],
-                ),
+
+                  // Foto (nunca bloquea el resto del contenido)
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: AspectRatio(
+                      aspectRatio: 16 / 10,
+                      child: mural.fotoUrl != null && mural.fotoUrl!.isNotEmpty
+                          ? Image.network(
+                              mural.fotoUrl!,
+                              fit: BoxFit.cover,
+                              loadingBuilder: (context, child, progress) {
+                                if (progress == null) return child;
+                                return Container(
+                                  color: Colors.grey[200],
+                                  child: const Center(
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 3,
+                                    ),
+                                  ),
+                                );
+                              },
+                              errorBuilder: (_, __, ___) => Container(
+                                color: Colors.grey[200],
+                                child: const Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.broken_image_outlined,
+                                        size: 40, color: Colors.grey),
+                                    SizedBox(height: 8),
+                                    Text(
+                                      'No se pudo cargar la imagen',
+                                      style: TextStyle(
+                                        color: Colors.grey,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            )
+                          : Container(
+                              color: Colors.grey[200],
+                              child: const Center(
+                                child: Icon(Icons.image_not_supported_outlined,
+                                    size: 40, color: Colors.grey),
+                              ),
+                            ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Título
+                  Text(
+                    mural.titulo,
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+
+                  // Descripción
+                  if (mural.descripcion != null &&
+                      mural.descripcion!.trim().isNotEmpty)
+                    Text(
+                      mural.descripcion!,
+                      style: TextStyle(
+                        fontSize: 15,
+                        height: 1.4,
+                        color: Colors.grey[800],
+                      ),
+                    )
+                  else
+                    Text(
+                      'Sin descripción',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontStyle: FontStyle.italic,
+                        color: Colors.grey[500],
+                      ),
+                    ),
+                  const SizedBox(height: 16),
+
+                  // Coordenadas
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.deepPurple.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.location_on,
+                            color: Colors.deepPurple, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Lat: ${mural.latitud.toStringAsFixed(5)}\n'
+                            'Lng: ${mural.longitud.toStringAsFixed(5)}',
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.deepPurple,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Cómo llegar
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: () => _abrirComoLlegar(
+                        mural.latitud,
+                        mural.longitud,
+                      ),
+                      icon: const Icon(Icons.directions),
+                      label: const Text('Cómo llegar'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.deepPurple,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Cerrar
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.of(ctx).pop(),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text('Cerrar'),
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cerrar'),
-          ),
-        ],
-      ),
+            );
+          },
+        );
+      },
     );
+  }
+
+  Future<void> _abrirComoLlegar(double lat, double lng) async {
+    final uri = Uri.parse(
+      'https://www.openstreetmap.org/?mlat=$lat&mlon=$lng#map=18/$lat/$lng',
+    );
+    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!ok && mounted) {
+      _mostrarSnackBar(
+        'No se pudo abrir el mapa. Coordenadas: '
+        '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}',
+        isError: true,
+      );
+    }
   }
 
   /// Flujo completo: cámara → GPS → formulario → subida → refresh
