@@ -2,13 +2,17 @@
 
 Aplicación móvil desarrollada con **Flutter para Android** orientada al mapeo colaborativo de arte urbano.
 
-Muralito permite registrar murales mediante una fotografía, obtener su ubicación geográfica, almacenar la información en **Supabase** y visualizar los murales sobre un mapa basado en **OpenStreetMap**.
+Muralito permite registrar murales mediante una fotografía, obtener su ubicación geográfica, almacenar la información en **Supabase** y visualizar los murales sobre un mapa basado en **OpenStreetMap**. La app soporta **modo espectador** (ver mapa sin cuenta) y **autenticación de usuarios** (requerida solo para registrar murales).
 
 ---
 
 ## 📱 Características actuales
 
 * 🗺️ Mapa interactivo con OpenStreetMap.
+* 👁️ **Modo espectador** — explorar el mapa y ver murales sin iniciar sesión.
+* 🔐 **Autenticación de usuarios** — login/registro con correo y contraseña (Supabase Auth).
+* 🔒 **Contraseña segura** — validación de fortaleza (mayúscula, minúscula, número, especial, 8+ caracteres).
+* 🔑 **Recuperar contraseña** — correo de restablecimiento integrado.
 * 📍 Obtención de ubicación mediante GPS.
 * 📷 Captura de fotografías desde la cámara.
 * 🔄 Corrección automática y rotación manual (pasos de 90°) de fotos antes de guardar.
@@ -16,7 +20,7 @@ Muralito permite registrar murales mediante una fotografía, obtener su ubicaci�
 * 📝 Registro de título y descripción del mural.
 * 🖼️ Compresión de imágenes antes de subirlas.
 * ☁️ Almacenamiento de fotografías mediante Supabase Storage.
-* 🗄️ Registro de información mediante PostgreSQL/Supabase.
+* 🗄️ Registro de información mediante PostgreSQL/Supabase con vinculación a `user_id`.
 * 🟣 Agrupamiento inteligente (clustering) por distancia GPS real para murales cercanos.
 * 📋 Ficha de detalle del mural y selector de grupo.
 * 🧭 Opción "Cómo llegar".
@@ -31,8 +35,8 @@ Las siguientes funcionalidades están priorizadas como próximas mejoras:
 
 **Prioridad alta**
 
-* [ ] Autenticación de usuarios (login/registro).
-* [ ] Edición y eliminación de murales (depende de tener autenticación para hacerlo de forma segura).
+* [ ] Edición y eliminación de murales (solo el autor puede modificar sus obras).
+* [ ] Perfil de usuario con historial de murales subidos.
 
 **Prioridad media**
 
@@ -67,6 +71,7 @@ La lista completa de mejoras, ideas a futuro y las notas de seguridad (RLS) se d
 | Backend              | Supabase                      |
 | Base de datos        | PostgreSQL                    |
 | Storage              | Supabase Storage              |
+| Auth                 | Supabase Auth                 |
 | Variables de entorno | `flutter_dotenv`              |
 | Enlaces externos     | `url_launcher`                |
 
@@ -126,6 +131,7 @@ La aplicación utiliza actualmente:
 
 * PostgreSQL para los registros de los murales.
 * Supabase Storage para las fotografías.
+* Supabase Auth para autenticación de usuarios.
 
 La tabla principal utilizada por la aplicación es:
 
@@ -143,6 +149,7 @@ descripcion
 foto_url
 latitud
 longitud
+user_id
 ```
 
 El bucket utilizado para las fotografías es:
@@ -151,9 +158,10 @@ El bucket utilizado para las fotografías es:
 murales
 ```
 
-### ⚠️ Nota sobre políticas RLS
+### ⚠️ Nota sobre autenticación
 
-Actualmente las políticas de INSERT (tabla murales) y SELECT (bucket murales) están abiertas para el rol anon para posibilitar el MVP sin autenticación obligatoria. Se cerrarán en fases posteriores al integrar login de usuarios.
+La app funciona en modo espectador por defecto: cualquiera puede abrir la app y ver los murales en el mapa. Solo se requiere autenticación para registrar un nuevo mural. Al tocar "Nuevo Mural" sin sesión activa, se muestra un diálogo que invita a iniciar sesión o registrarse.
+
 
 
 ---
@@ -217,7 +225,17 @@ Los permisos se solicitan durante la ejecución de la aplicación cuando son nec
 
 ## 🔄 Flujo principal
 
-El flujo actual para registrar un mural es:
+Modo espectador (sin login)
+
+Abrir app
+     ↓
+Mapa con murales visibles
+     ↓
+Tocar marcador → Ficha de detalle
+     ↓
+"Cómo llegar" / Cerrar
+
+Modo registrador (con login)
 
 ```text
 Nuevo Mural
@@ -307,40 +325,50 @@ Resultado: todas las verificaciones funcionaron correctamente.
 
 Validación de auto-orientación EXIF, botón interactivo de rotación en pasos de 90° en el formulario, persistencia en Supabase y ficha de detalle visualmente adaptable sin encajonamientos negros para fotos verticales u horizontales.
 
+### Prueba 005 — Autenticación de usuarios
+
+✅ Registro con correo y contraseña.
+✅ Confirmación de correo electrónico.
+✅ Login con credenciales válidas.
+✅ Contraseña fuerte validada en frontend.
+✅ Recuperación de contraseña por correo.
+✅ Modo espectador: mapa visible sin sesión.
+✅ "Nuevo Mural" solicita login si no hay sesión.
+✅ Logout funcional desde AppBar.
+✅ user_id poblado correctamente en tabla murales.
+✅ RLS: INSERT restringido a authenticated con auth.uid() = user_id.
+✅ Storage: INSERT restringido a authenticated.
+
 ---
 
 ## 📌 Estado del proyecto
 
-**MVP funcional en desarrollo.**
+**MVP funcional en desarrollo. — fase de autenticación completada.**
 
-Actualmente el flujo principal de registro y visualización de murales se encuentra implementado.
+Actualmente el flujo principal de registro y visualización de murales se encuentra implementado, con autenticación de usuarios operativa y modo espectador activo.
 
 Mejoras priorizadas
 
 Backlog técnico y de producto, organizado de mayor a menor prioridad. Actualizado tras implementar y probar la orientación y rotación manual de fotografías (Prueba 004).
 
 ✅ Resueltas
-1. Marcadores muy cercanos se solapan — RESUELTO (Prueba 003). Agrupamiento en cluster con número mediante distancia GPS real con la clase Distance de latlong2.
-2. Foto en horizontal mal orientada y ajuste visual — RESUELTO (Prueba 004). Auto-orientación EXIF en compresión, botón de giro manual (90° por toque) en el formulario de registro y contenedores flexibles sin marcos rígidos en la ficha de detalle.
-
+Marcadores muy cercanos se solapan — RESUELTO (Prueba 003).
+Foto en horizontal mal orientada y ajuste visual — RESUELTO (Prueba 004).
+Autenticación de usuarios con vinculación a murales — RESUELTO (Prueba 005).
 🔴 Prioridad alta
-• Autenticación de usuarios — Login/registro de usuarios. Es la base para poder restringir de forma segura quién puede insertar, editar o eliminar murales.
-• Edición y eliminación de murales — Permitir que el autor edite o borre sus propios murales. Depende de tener autenticación implementada.
-
+Edición y eliminación de murales (solo el autor).
+Perfil de usuario con historial de murales.
 🟡 Prioridad media
-• Visor de imagen con zoom interactivo — Permitir pellizcar para hacer zoom (pinch-to-zoom) a la foto dentro de la ficha de detalle para observar detalles y firmas.
-• "Cómo llegar" abra Google Maps — Cambiar la redirección externa para que abra directamente Google Maps (app o navegador).
-• Permisos de ubicación ("denegado permanentemente") — No tratar el cierre del diálogo como denegado para siempre. Pedir GPS después de la foto y, si se cancela, dejar seguir con pin manual.
-• Botón de ubicación del usuario — Botón flotante estilo Google Maps que centre automáticamente la vista en la ubicación actual, con un marcador distintivo que represente la posición del usuario.
-
+Visor de imagen con zoom interactivo (pinch-to-zoom).
+"Cómo llegar" con Google Maps.
+Permisos de ubicación robustos y pin manual.
+Botón "Mi ubicación" con marcador de posición.
 🟢 Prioridad baja
-• Ajustar ubicación en el mapa — En el formulario, botón "Ajustar en mapa" para mover el pin antes de guardar.
-• Tamaño de los marcadores — Bajar el tamaño fijo (~32–36 px) o adaptarlo progresivamente al nivel de zoom.
-• Animación de separación en clusters pequeños — Para grupos de hasta ~6 murales, evaluar animación "spiderfy" al tocar el cluster antes de abrir la lista.
-• Revisar política SELECT del bucket de Storage — Restringir para que no permita listar todos los nombres de archivo públicamente.
+Ajustar ubicación manual en el mapa.
+Tamaño dinámico de marcadores según zoom.
+Animación "spiderfy" en clusters pequeños.
+Revisar política SELECT del bucket de Storage.
 
-🔐 Notas de seguridad (avisos de Supabase)
-[Se mantienen las notas sobre RLS abierta en INSERT y política pública de Storage pendientes para la etapa de autenticación].
 
 💡 Ideas a futuro
 [Se mantienen las ideas de gamificación, insignias de autor, moderación, reportes de estado y personalización].
