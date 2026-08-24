@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -50,24 +51,7 @@ class AuthGate extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<AuthState>(
-      stream: supabase.auth.onAuthStateChange,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
-        }
-
-        final session = snapshot.hasData ? snapshot.data!.session : null;
-
-        if (session != null) {
-          return const MapaPrincipalPage();
-        }
-
-        return const AuthPage();
-      },
-    );
+    return const MapaPrincipalPage();
   }
 }
 
@@ -126,19 +110,27 @@ class Mural {
 // PÁGINA DE AUTENTICACIÓN: LOGIN / REGISTRO
 // ──────────────────────────────────────────────────────────────
 class AuthPage extends StatefulWidget {
-  const AuthPage({super.key});
+  final bool empezarEnRegistro;
+
+  const AuthPage({super.key, this.empezarEnRegistro = false});
 
   @override
   State<AuthPage> createState() => _AuthPageState();
 }
 
 class _AuthPageState extends State<AuthPage> {
-  bool _esRegistro = false;
+  late bool _esRegistro;
   bool _cargando = false;
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passController = TextEditingController();
   final _confirmPassController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _esRegistro = widget.empezarEnRegistro;
+  }
 
   @override
   void dispose() {
@@ -171,6 +163,9 @@ class _AuthPageState extends State<AuthPage> {
           email: _emailController.text.trim(),
           password: _passController.text.trim(),
         );
+        if (mounted && Navigator.of(context).canPop()) {
+          Navigator.of(context).pop(true);
+        }
       }
     } on AuthException catch (e) {
       if (mounted) _mostrarSnackBar('❌ ${e.message}', isError: true);
@@ -220,7 +215,7 @@ class _AuthPageState extends State<AuthPage> {
                 Text(
                   _esRegistro
                       ? 'Crea tu cuenta para registrar murales'
-                      : 'Inicia sesión para continuar',
+                      : 'Inicia sesión para registrar murales',
                   style: TextStyle(color: Colors.grey[600]),
                 ),
                 const SizedBox(height: 32),
@@ -332,6 +327,14 @@ class _AuthPageState extends State<AuthPage> {
                         : '¿No tienes cuenta? Regístrate',
                   ),
                 ),
+                if (Navigator.of(context).canPop())
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: Text(
+                      'Continuar sin cuenta',
+                      style: TextStyle(color: Colors.grey[600]),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -356,11 +359,23 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
   final List<Mural> _murales = [];
   bool _cargandoMurales = true;
   String? _errorMurales;
+  StreamSubscription<AuthState>? _authSub;
+
+  bool get _haySesion => supabase.auth.currentUser != null;
 
   @override
   void initState() {
     super.initState();
     _cargarMurales();
+    _authSub = supabase.auth.onAuthStateChange.listen((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _authSub?.cancel();
+    super.dispose();
   }
 
   /// Consulta los murales desde Supabase y actualiza el estado
@@ -824,6 +839,12 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
 
   /// Flujo completo: cámara → GPS → formulario → subida → refresh
   Future<void> _iniciarFlujoNuevoMural() async {
+
+    if (!_haySesion) {
+      await _pedirSesionParaNuevoMural();
+      return;
+    }
+
     // 1. Verificar permisos de ubicación
     final permiso = await _verificarPermisosUbicacion();
     if (!permiso) return;
@@ -876,6 +897,53 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
       rotacionManual: resultado['rotacion'] as int? ?? 0,
       latitud: posicion.latitude,
       longitud: posicion.longitude,
+    );
+  }
+
+  Future<void> _pedirSesionParaNuevoMural() async {
+    final bool? irARegistro = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Inicia sesión para registrar'),
+        content: const Text(
+          'Puedes explorar el mapa sin cuenta. '
+          'Para subir un mural necesitas iniciar sesión o crear una cuenta.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Seguir explorando'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Registrarse'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Iniciar sesión'),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted || irARegistro == null) return;
+
+    final bool? sesionOk = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => AuthPage(empezarEnRegistro: irARegistro),
+      ),
+    );
+
+    if (sesionOk == true && mounted && _haySesion) {
+      await _iniciarFlujoNuevoMural();
+    }
+  }
+
+  Future<void> _abrirAuth({bool registro = false}) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => AuthPage(empezarEnRegistro: registro),
+      ),
     );
   }
 
@@ -1016,7 +1084,21 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Muralito 🎨'),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Muralito 🎨'),
+            Text(
+              _haySesion
+                  ? (supabase.auth.currentUser?.email ?? 'Sesión activa')
+                  : 'Modo espectador',
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.normal,
+              ),
+            ),
+          ],
+        ),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
           IconButton(
@@ -1024,13 +1106,23 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
             tooltip: 'Recargar murales',
             onPressed: _cargarMurales,
           ),
-          IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Cerrar sesión',
-            onPressed: () async {
-              await supabase.auth.signOut();
-            },
-          ),
+          if (_haySesion)
+            IconButton(
+              icon: const Icon(Icons.logout),
+              tooltip: 'Cerrar sesión',
+              onPressed: () async {
+                await supabase.auth.signOut();
+                if (mounted) {
+                  _mostrarSnackBar('Sesión cerrada. Sigues viendo el mapa.');
+                }
+              },
+            )
+          else
+            IconButton(
+              icon: const Icon(Icons.person_outline),
+              tooltip: 'Iniciar sesión',
+              onPressed: () => _abrirAuth(),
+            ),
         ],
       ),
       body: Stack(
@@ -1050,7 +1142,6 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
             ],
           ),
 
-          // Indicador de carga de murales
           if (_cargandoMurales)
             Container(
               color: Colors.black.withValues(alpha: 0.3),
@@ -1071,7 +1162,6 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
               ),
             ),
 
-          // Mensaje de error
           if (_errorMurales != null && !_cargandoMurales)
             Positioned(
               top: 16,
