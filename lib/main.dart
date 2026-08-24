@@ -397,18 +397,21 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
                     ),
                   ),
 
-                  // Foto (nunca bloquea el resto del contenido)
+                  // Foto adaptable (nunca bloquea el resto del contenido)
                   ClipRRect(
                     borderRadius: BorderRadius.circular(16),
-                    child: AspectRatio(
-                      aspectRatio: 16 / 10,
+                    child: Container(
+                      constraints: const BoxConstraints(maxHeight: 280),
+                      width: double.infinity,
+                      color: Colors.grey[100],
                       child: mural.fotoUrl != null && mural.fotoUrl!.isNotEmpty
                           ? Image.network(
                               mural.fotoUrl!,
-                              fit: BoxFit.cover,
+                              fit: BoxFit.contain,
                               loadingBuilder: (context, child, progress) {
                                 if (progress == null) return child;
                                 return Container(
+                                  height: 180,
                                   color: Colors.grey[200],
                                   child: const Center(
                                     child: CircularProgressIndicator(
@@ -418,6 +421,7 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
                                 );
                               },
                               errorBuilder: (_, _, _) => Container(
+                                height: 160,
                                 color: Colors.grey[200],
                                 child: const Column(
                                   mainAxisAlignment: MainAxisAlignment.center,
@@ -437,6 +441,7 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
                               ),
                             )
                           : Container(
+                              height: 160,
                               color: Colors.grey[200],
                               child: const Center(
                                 child: Icon(Icons.image_not_supported_outlined,
@@ -445,7 +450,6 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
                             ),
                     ),
                   ),
-                  const SizedBox(height: 16),
 
                   // Título
                   Text(
@@ -598,7 +602,8 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
 
     // 4. Abrir modal de formulario
     if (!mounted) return;
-    final resultado = await showModalBottomSheet<Map<String, String>>(
+    final Map<String, dynamic>? resultado =
+     await showModalBottomSheet<Map<String, dynamic>>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -614,8 +619,9 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
     // 5. Subir imagen y guardar en BD
     await _subirMural(
       foto: foto,
-      titulo: resultado['titulo']!,
-      descripcion: resultado['descripcion']!,
+      titulo: resultado['titulo'] as String,
+      descripcion: resultado['descripcion'] as String,
+      rotacionManual: resultado['rotacion'] as int? ?? 0,
       latitud: posicion.latitude,
       longitud: posicion.longitude,
     );
@@ -661,6 +667,7 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
     required XFile foto,
     required String titulo,
     required String descripcion,
+    required int rotacionManual,
     required double latitud,
     required double longitud,
   }) async {
@@ -674,13 +681,15 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
     );
 
     try {
-      // ── Compresión de imagen ──
+      // ── Compresión de imagen con corrección de orientación ──
       final Uint8List? imagenComprimida =
           await FlutterImageCompress.compressWithFile(
         foto.path,
         minWidth: 1200,
         minHeight: 1200,
         quality: 80,
+        rotate: rotacionManual,
+        autoCorrectionAngle: true,
       );
 
       if (imagenComprimida == null) {
@@ -855,12 +864,19 @@ class _FormularioMuralModalState extends State<_FormularioMuralModal> {
   final _formKey = GlobalKey<FormState>();
   final _tituloController = TextEditingController();
   final _descripcionController = TextEditingController();
+  int _rotacion = 0; // 0, 90, 180, 270
 
   @override
   void dispose() {
     _tituloController.dispose();
     _descripcionController.dispose();
     super.dispose();
+  }
+
+  void _rotarImagen() {
+    setState(() {
+      _rotacion = (_rotacion + 90) % 360;
+    });
   }
 
   @override
@@ -908,17 +924,44 @@ class _FormularioMuralModalState extends State<_FormularioMuralModal> {
               ),
               const SizedBox(height: 16),
 
-              // Preview de la foto capturada
-              ClipRRect(
-                borderRadius: BorderRadius.circular(16),
-                child: Image.file(
-                  File(widget.fotoPath),
-                  height: 200,
-                  width: double.infinity,
-                  fit: BoxFit.cover,
-                ),
+              // Preview de la foto capturada adaptable
+              Stack(
+                alignment: Alignment.bottomRight,
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: Container(
+                      constraints: const BoxConstraints(
+                        maxHeight: 260,
+                        minHeight: 160,
+                      ),
+                      width: double.infinity,
+                      color: Colors.grey[100],
+                      child: Center(
+                        child: RotatedBox(
+                          quarterTurns: _rotacion ~/ 90,
+                          child: Image.file(
+                            File(widget.fotoPath),
+                            fit: BoxFit.contain,
+                         ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.all(8.0),
+                    child: IconButton.filledTonal(
+                      onPressed: _rotarImagen,
+                      icon: const Icon(Icons.rotate_right),
+                      tooltip: 'Rotar imagen',
+                      style: IconButton.styleFrom(
+                        backgroundColor: Colors.white.withValues(alpha: 0.9),
+                        foregroundColor: Colors.deepPurple,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 8),
 
               // Info de coordenadas
               Container(
@@ -1021,6 +1064,7 @@ class _FormularioMuralModalState extends State<_FormularioMuralModal> {
                           Navigator.of(context).pop({
                             'titulo': _tituloController.text.trim(),
                             'descripcion': _descripcionController.text.trim(),
+                            'rotacion': _rotacion,
                           });
                         }
                       },
