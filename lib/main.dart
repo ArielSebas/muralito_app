@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -198,18 +199,14 @@ class _AuthPageState extends State<AuthPage> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(
-                  Icons.brush,
-                  size: 72,
-                  color: Colors.deepPurple,
-                ),
+                const Icon(Icons.brush, size: 72, color: Colors.deepPurple),
                 const SizedBox(height: 16),
                 Text(
                   'Muralito',
                   style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: Colors.deepPurple,
-                      ),
+                    fontWeight: FontWeight.bold,
+                    color: Colors.deepPurple,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 Text(
@@ -391,8 +388,9 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
           .select()
           .order('created_at', ascending: false);
 
-      final List<Mural> muralesCargados =
-          (response as List).map((m) => Mural.fromMap(m)).toList();
+      final List<Mural> muralesCargados = (response as List)
+          .map((m) => Mural.fromMap(m))
+          .toList();
 
       setState(() {
         _murales.clear();
@@ -512,11 +510,7 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
           ),
         ],
       ),
-      child: const Icon(
-        Icons.brush,
-        color: Colors.white,
-        size: 24,
-      ),
+      child: const Icon(Icons.brush, color: Colors.white, size: 24),
     );
   }
 
@@ -527,8 +521,8 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
     final Color color = cantidad < 5
         ? Colors.deepPurple
         : cantidad < 10
-            ? Colors.deepPurple[700]!
-            : Colors.deepPurple[900]!;
+        ? Colors.deepPurple[700]!
+        : Colors.deepPurple[900]!;
 
     return Container(
       decoration: BoxDecoration(
@@ -570,8 +564,10 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
             padding: const EdgeInsets.symmetric(vertical: 12),
             children: [
               Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 8,
+                ),
                 child: Text(
                   '${grupo.length} murales en este punto',
                   style: const TextStyle(
@@ -593,20 +589,24 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
                               fit: BoxFit.cover,
                               errorBuilder: (_, _, _) => Container(
                                 color: Colors.grey[200],
-                                child: const Icon(Icons.broken_image_outlined,
-                                    color: Colors.grey),
+                                child: const Icon(
+                                  Icons.broken_image_outlined,
+                                  color: Colors.grey,
+                                ),
                               ),
                             )
                           : Container(
                               color: Colors.grey[200],
                               child: const Icon(
-                                  Icons.image_not_supported_outlined,
-                                  color: Colors.grey),
+                                Icons.image_not_supported_outlined,
+                                color: Colors.grey,
+                              ),
                             ),
                     ),
                   ),
                   title: Text(mural.titulo),
-                  subtitle: mural.descripcion != null &&
+                  subtitle:
+                      mural.descripcion != null &&
                           mural.descripcion!.trim().isNotEmpty
                       ? Text(
                           mural.descripcion!,
@@ -627,10 +627,227 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
     );
   }
 
+  Future<void> _editarMural(Mural mural) async {
+  final usuarioActual = supabase.auth.currentUser;
+
+  // Protección adicional en la interfaz.
+  // La seguridad real sigue estando en RLS.
+  if (usuarioActual == null || mural.userId != usuarioActual.id) {
+    _mostrarSnackBar(
+      'No tienes permiso para editar este mural.',
+      isError: true,
+    );
+    return;
+  }
+
+  final resultado = await showDialog<Map<String, String>?>(
+    context: context,
+    builder: (ctx) {
+      final tituloController = TextEditingController(
+        text: mural.titulo,
+      );
+
+      final descripcionController = TextEditingController(
+        text: mural.descripcion ?? '',
+      );
+
+      final formKey = GlobalKey<FormState>();
+
+      return AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.edit_outlined),
+            SizedBox(width: 8),
+            Text('Editar mural'),
+          ],
+        ),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: tituloController,
+                textCapitalization: TextCapitalization.sentences,
+                decoration: const InputDecoration(
+                  labelText: 'Título',
+                  prefixIcon: Icon(Icons.title),
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'El título es obligatorio';
+                  }
+
+                  return null;
+                },
+              ),
+
+              const SizedBox(height: 16),
+
+              TextFormField(
+                controller: descripcionController,
+                textCapitalization: TextCapitalization.sentences,
+                maxLines: 4,
+                decoration: const InputDecoration(
+                  labelText: 'Descripción',
+                  prefixIcon: Icon(Icons.description_outlined),
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(ctx).pop(null);
+            },
+            child: const Text('Cancelar'),
+          ),
+
+          FilledButton.icon(
+            onPressed: () {
+              if (!formKey.currentState!.validate()) {
+                return;
+              }
+
+              Navigator.of(ctx).pop({
+                'titulo': tituloController.text.trim(),
+                'descripcion': descripcionController.text.trim(),
+              });
+            },
+            icon: const Icon(Icons.save_outlined),
+            label: const Text('Guardar cambios'),
+          ),
+        ],
+      );
+    },
+  );
+
+  // Cancelar edición.
+  if (resultado == null || !mounted) {
+    return;
+  }
+
+  final titulo = resultado['titulo'] ?? '';
+  final descripcion = resultado['descripcion'] ?? '';
+
+  try {
+    await supabase
+        .from('murales')
+        .update({
+          'titulo': titulo,
+          'descripcion': descripcion.isEmpty ? null : descripcion,
+        })
+        .eq('id', mural.id!)
+        .eq('user_id', usuarioActual.id);
+
+    await _cargarMurales();
+
+    if (!mounted) return;
+
+    _mostrarSnackBar(
+      '✅ Mural "$titulo" actualizado correctamente.',
+    );
+  } on PostgrestException catch (e) {
+    if (!mounted) return;
+
+    _mostrarSnackBar(
+      '❌ No se pudo actualizar el mural: ${e.message}',
+      isError: true,
+    );
+  } catch (e) {
+    if (!mounted) return;
+
+    _mostrarSnackBar(
+      '❌ Error al actualizar el mural: $e',
+      isError: true,
+    );
+  }
+}
+
+  Future<void> _eliminarMural(Mural mural) async {
+    final usuarioActual = supabase.auth.currentUser;
+
+    // Protección adicional en la interfaz.
+    // La seguridad real sigue estando en RLS.
+    if (usuarioActual == null || mural.userId != usuarioActual.id) {
+      _mostrarSnackBar(
+        'No tienes permiso para eliminar este mural.',
+        isError: true,
+      );
+      return;
+    }
+
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.delete_outline, color: Colors.red),
+              SizedBox(width: 8),
+              Expanded(child: Text('Eliminar mural')),
+            ],
+          ),
+          content: Text(
+            '¿Seguro que quieres eliminar "${mural.titulo}"?\n\n'
+            'Esta acción no se puede deshacer.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton.icon(
+              style: FilledButton.styleFrom(backgroundColor: Colors.red),
+              onPressed: () => Navigator.of(ctx).pop(true),
+              icon: const Icon(Icons.delete_outline),
+              label: const Text('Eliminar'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmar != true || !mounted) return;
+
+    try {
+      await supabase
+          .from('murales')
+          .delete()
+          .eq('id', mural.id!)
+          .eq('user_id', usuarioActual.id);
+
+      await _cargarMurales();
+
+      if (!mounted) return;
+
+      _mostrarSnackBar('✅ Mural "${mural.titulo}" eliminado correctamente.');
+    } on PostgrestException catch (e) {
+      if (!mounted) return;
+
+      _mostrarSnackBar(
+        '❌ No se pudo eliminar el mural: ${e.message}',
+        isError: true,
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      _mostrarSnackBar('❌ Error al eliminar el mural: $e', isError: true);
+    }
+  }
+
   /// Muestra un diálogo con los detalles del mural seleccionado
   /// Ficha de detalle del mural (bottom sheet).
   /// Siempre muestra título, descripción y coordenadas aunque la foto falle.
   void _mostrarDetalleMural(Mural mural) {
+    final usuarioActual = supabase.auth.currentUser;
+    final bool esPropietario =
+        usuarioActual != null &&
+        mural.userId != null &&
+        mural.userId == usuarioActual.id;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -693,8 +910,11 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
                                 child: const Column(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
-                                    Icon(Icons.broken_image_outlined,
-                                        size: 40, color: Colors.grey),
+                                    Icon(
+                                      Icons.broken_image_outlined,
+                                      size: 40,
+                                      color: Colors.grey,
+                                    ),
                                     SizedBox(height: 8),
                                     Text(
                                       'No se pudo cargar la imagen',
@@ -711,8 +931,11 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
                               height: 160,
                               color: Colors.grey[200],
                               child: const Center(
-                                child: Icon(Icons.image_not_supported_outlined,
-                                    size: 40, color: Colors.grey),
+                                child: Icon(
+                                  Icons.image_not_supported_outlined,
+                                  size: 40,
+                                  color: Colors.grey,
+                                ),
                               ),
                             ),
                     ),
@@ -753,15 +976,20 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
                   // Coordenadas
                   Container(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 10),
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.deepPurple.withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Row(
                       children: [
-                        const Icon(Icons.location_on,
-                            color: Colors.deepPurple, size: 20),
+                        const Icon(
+                          Icons.location_on,
+                          color: Colors.deepPurple,
+                          size: 20,
+                        ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
@@ -779,14 +1007,54 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
                   ),
                   const SizedBox(height: 20),
 
+                  if (esPropietario) ...[
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              Navigator.of(ctx).pop();
+                              _editarMural(mural);
+                            },
+                            icon: const Icon(Icons.edit_outlined),
+                            label: const Text('Editar'),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: FilledButton.icon(
+                            onPressed: () {
+                              Navigator.of(ctx).pop();
+                              _eliminarMural(mural);
+                            },
+                            icon: const Icon(Icons.delete_outline),
+                            label: const Text('Eliminar'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: Colors.red,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+
                   // Cómo llegar
                   SizedBox(
                     width: double.infinity,
                     child: FilledButton.icon(
-                      onPressed: () => _abrirComoLlegar(
-                        mural.latitud,
-                        mural.longitud,
-                      ),
+                      onPressed: () =>
+                          _abrirComoLlegar(mural.latitud, mural.longitud),
                       icon: const Icon(Icons.directions),
                       label: const Text('Cómo llegar'),
                       style: FilledButton.styleFrom(
@@ -839,7 +1107,6 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
 
   /// Flujo completo: cámara → GPS → formulario → subida → refresh
   Future<void> _iniciarFlujoNuevoMural() async {
-
     if (!_haySesion) {
       await _pedirSesionParaNuevoMural();
       return;
@@ -869,23 +1136,26 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
       );
     } catch (e) {
       if (!mounted) return;
-      _mostrarSnackBar('⚠️ No se pudo obtener la ubicación GPS: $e', isError: true);
+      _mostrarSnackBar(
+        '⚠️ No se pudo obtener la ubicación GPS: $e',
+        isError: true,
+      );
       return;
     }
 
     // 4. Abrir modal de formulario
     if (!mounted) return;
     final Map<String, dynamic>? resultado =
-     await showModalBottomSheet<Map<String, dynamic>>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => _FormularioMuralModal(
-        fotoPath: foto.path,
-        latitud: posicion!.latitude,
-        longitud: posicion.longitude,
-      ),
-    );
+        await showModalBottomSheet<Map<String, dynamic>>(
+          context: context,
+          isScrollControlled: true,
+          backgroundColor: Colors.transparent,
+          builder: (ctx) => _FormularioMuralModal(
+            fotoPath: foto.path,
+            latitud: posicion!.latitude,
+            longitud: posicion.longitude,
+          ),
+        );
 
     if (resultado == null) return; // Usuario canceló el formulario
 
@@ -941,9 +1211,7 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
 
   Future<void> _abrirAuth({bool registro = false}) async {
     await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => AuthPage(empezarEnRegistro: registro),
-      ),
+      MaterialPageRoute(builder: (_) => AuthPage(empezarEnRegistro: registro)),
     );
   }
 
@@ -962,10 +1230,7 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) {
-        _mostrarSnackBar(
-          'Permiso de ubicación denegado.',
-          isError: true,
-        );
+        _mostrarSnackBar('Permiso de ubicación denegado.', isError: true);
         return false;
       }
     }
@@ -1013,13 +1278,13 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
       // ── Compresión de imagen con corrección de orientación ──
       final Uint8List? imagenComprimida =
           await FlutterImageCompress.compressWithFile(
-        foto.path,
-        minWidth: 1200,
-        minHeight: 1200,
-        quality: 80,
-        rotate: rotacionManual,
-        autoCorrectionAngle: true,
-      );
+            foto.path,
+            minWidth: 1200,
+            minHeight: 1200,
+            quality: 80,
+            rotate: rotacionManual,
+            autoCorrectionAngle: true,
+          );
 
       if (imagenComprimida == null) {
         throw Exception('No se pudo comprimir la imagen');
@@ -1029,15 +1294,18 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
       final String nombreArchivo =
           '${DateTime.now().millisecondsSinceEpoch}_${titulo.replaceAll(' ', '_')}.jpg';
 
-      await supabase.storage.from('murales').uploadBinary(
+      await supabase.storage
+          .from('murales')
+          .uploadBinary(
             nombreArchivo,
             imagenComprimida,
             fileOptions: const FileOptions(contentType: 'image/jpeg'),
           );
 
       // Obtener URL pública
-      final String fotoUrl =
-          supabase.storage.from('murales').getPublicUrl(nombreArchivo);
+      final String fotoUrl = supabase.storage
+          .from('murales')
+          .getPublicUrl(nombreArchivo);
 
       // ── Insertar registro en PostgreSQL ──
       final nuevoMural = Mural(
@@ -1275,10 +1543,7 @@ class _FormularioMuralModalState extends State<_FormularioMuralModal> {
 
               const Text(
                 'Registrar Nuevo Mural',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 16),
@@ -1302,7 +1567,7 @@ class _FormularioMuralModalState extends State<_FormularioMuralModal> {
                           child: Image.file(
                             File(widget.fotoPath),
                             fit: BoxFit.contain,
-                         ),
+                          ),
                         ),
                       ),
                     ),
@@ -1324,7 +1589,10 @@ class _FormularioMuralModalState extends State<_FormularioMuralModal> {
 
               // Info de coordenadas
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.deepPurple.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
@@ -1332,8 +1600,11 @@ class _FormularioMuralModalState extends State<_FormularioMuralModal> {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.location_on,
-                        color: Colors.deepPurple, size: 18),
+                    const Icon(
+                      Icons.location_on,
+                      color: Colors.deepPurple,
+                      size: 18,
+                    ),
                     const SizedBox(width: 6),
                     Text(
                       'Lat: ${widget.latitud.toStringAsFixed(5)} | '
@@ -1488,19 +1759,13 @@ class _DialogoCarga extends StatelessWidget {
             SizedBox(height: 20),
             Text(
               'Subiendo mural...',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-              ),
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
             ),
             SizedBox(height: 8),
             Text(
               'Comprimiendo imagen y guardando en la nube',
               textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 13,
-                color: Colors.grey,
-              ),
+              style: TextStyle(fontSize: 13, color: Colors.grey),
             ),
           ],
         ),
