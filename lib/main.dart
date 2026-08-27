@@ -171,7 +171,7 @@ class _AuthPageState extends State<AuthPage> {
     } on AuthException catch (e) {
       if (mounted) _mostrarSnackBar('❌ ${e.message}', isError: true);
     } catch (e) {
-      if (mounted) _mostrarSnackBar('❌ Error inesperado: $e', isError: true);
+      if (mounted) _mostrarSnackBar('❌ ${mensajeErrorAmigable(e)}', isError: true);
     } finally {
       if (mounted) setState(() => _cargando = false);
     }
@@ -399,7 +399,7 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
       });
     } catch (e) {
       setState(() {
-        _errorMurales = 'Error al cargar murales: $e';
+        _errorMurales = mensajeErrorAmigable(e);
         _cargandoMurales = false;
       });
     }
@@ -640,132 +640,127 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
     return;
   }
 
-  final resultado = await showDialog<Map<String, String>?>(
-    context: context,
-    builder: (ctx) {
-      final tituloController = TextEditingController(
-        text: mural.titulo,
-      );
-
-      final descripcionController = TextEditingController(
-        text: mural.descripcion ?? '',
-      );
-
-      final formKey = GlobalKey<FormState>();
-
-      return AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.edit_outlined),
-            SizedBox(width: 8),
-            Text('Editar mural'),
-          ],
-        ),
-        content: Form(
-          key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextFormField(
-                controller: tituloController,
-                textCapitalization: TextCapitalization.sentences,
-                decoration: const InputDecoration(
-                  labelText: 'Título',
-                  prefixIcon: Icon(Icons.title),
-                  border: OutlineInputBorder(),
-                ),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'El título es obligatorio';
-                  }
-
-                  return null;
-                },
-              ),
-
-              const SizedBox(height: 16),
-
-              TextFormField(
-                controller: descripcionController,
-                textCapitalization: TextCapitalization.sentences,
-                maxLines: 4,
-                decoration: const InputDecoration(
-                  labelText: 'Descripción',
-                  prefixIcon: Icon(Icons.description_outlined),
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.of(ctx).pop(null);
-            },
-            child: const Text('Cancelar'),
-          ),
-
-          FilledButton.icon(
-            onPressed: () {
-              if (!formKey.currentState!.validate()) {
-                return;
-              }
-
-              Navigator.of(ctx).pop({
-                'titulo': tituloController.text.trim(),
-                'descripcion': descripcionController.text.trim(),
-              });
-            },
-            icon: const Icon(Icons.save_outlined),
-            label: const Text('Guardar cambios'),
-          ),
-        ],
-      );
-    },
-  );
+  final resultado = await showModalBottomSheet<Map<String, dynamic>?>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _EditarMuralModal(mural: mural),
+    );
 
   // Cancelar edición.
-  if (resultado == null || !mounted) {
-    return;
+    if (resultado == null || !mounted) return;
+
+    final String titulo = resultado['titulo'] as String;
+    final String descripcion = resultado['descripcion'] as String;
+    final String? nuevaFotoPath = resultado['nuevaFotoPath'] as String?;
+    final int rotacion = resultado['rotacion'] as int? ?? 0;
+
+    // ── Caso simple: no se cambió la foto ──
+    // Mismo comportamiento que antes, no toca Storage.
+    if (nuevaFotoPath == null) {
+      try {
+        await supabase
+            .from('murales')
+            .update({
+              'titulo': titulo,
+              'descripcion': descripcion.isEmpty ? null : descripcion,
+            })
+            .eq('id', mural.id!)
+            .eq('user_id', usuarioActual.id);
+
+        await _cargarMurales();
+        if (!mounted) return;
+        _mostrarSnackBar('✅ Mural "$titulo" actualizado correctamente.');
+      } on PostgrestException catch (e) {
+        if (!mounted) return;
+        _mostrarSnackBar('❌ ${mensajeErrorAmigable(e)}', isError: true);
+      } catch (e) {
+        if (!mounted) return;
+        _mostrarSnackBar('❌ ${mensajeErrorAmigable(e)}', isError: true);
+      }
+      return;
+    }
+
+    // ── Caso con foto nueva: comprimir → subir con nombre nuevo →
+    // actualizar → solo si todo salió bien, borrar la foto anterior ──
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const _DialogoCarga(
+        mensaje: 'Guardando cambios...',
+        submensaje: 'Comprimiendo y subiendo la nueva foto',
+      ),
+    );
+
+    String nuevaFotoUrl;
+    try {
+      final Uint8List? imagenComprimida =
+          await FlutterImageCompress.compressWithFile(
+            nuevaFotoPath,
+            minWidth: 1200,
+            minHeight: 1200,
+            quality: 80,
+            rotate: rotacion,
+            autoCorrectionAngle: true,
+          );
+
+      if (imagenComprimida == null) {
+        throw Exception('No se pudo comprimir la imagen');
+      }
+
+      final String nombreArchivo =
+          '${DateTime.now().millisecondsSinceEpoch}_${titulo.replaceAll(' ', '_')}.jpg';
+
+      await supabase.storage
+          .from('murales')
+          .uploadBinary(
+            nombreArchivo,
+            imagenComprimida,
+            fileOptions: const FileOptions(contentType: 'image/jpeg'),
+          );
+
+      nuevaFotoUrl = supabase.storage
+          .from('murales')
+          .getPublicUrl(nombreArchivo);
+    } catch (e) {
+      // Falló la compresión o la subida: no se toca la base de datos,
+      // el mural conserva su foto original.
+      if (!mounted) return;
+      Navigator.of(context).pop(); // Cierra _DialogoCarga
+      _mostrarSnackBar('❌ ${mensajeErrorAmigable(e)}', isError: true);
+      return;
+    }
+
+    try {
+      await supabase
+          .from('murales')
+          .update({
+            'titulo': titulo,
+            'descripcion': descripcion.isEmpty ? null : descripcion,
+            'foto_url': nuevaFotoUrl,
+          })
+          .eq('id', mural.id!)
+          .eq('user_id', usuarioActual.id);
+
+      // Éxito: borrar la foto anterior (best-effort).
+      if (mural.fotoUrl != null && mural.fotoUrl!.isNotEmpty) {
+        await borrarFotoDeStorage(mural.fotoUrl!);
+      }
+
+      await _cargarMurales();
+      if (!mounted) return;
+      Navigator.of(context).pop(); // Cierra _DialogoCarga
+      _mostrarSnackBar('✅ Mural "$titulo" actualizado correctamente.');
+    } catch (e) {
+      // El UPDATE falló después de subir la foto nueva: borra la foto
+      // recién subida para no dejar un huérfano; el mural conserva su
+      // foto original.
+      await borrarFotoDeStorage(nuevaFotoUrl);
+      if (!mounted) return;
+      Navigator.of(context).pop(); // Cierra _DialogoCarga
+      _mostrarSnackBar('❌ ${mensajeErrorAmigable(e)}', isError: true);
+    }
   }
-
-  final titulo = resultado['titulo'] ?? '';
-  final descripcion = resultado['descripcion'] ?? '';
-
-  try {
-    await supabase
-        .from('murales')
-        .update({
-          'titulo': titulo,
-          'descripcion': descripcion.isEmpty ? null : descripcion,
-        })
-        .eq('id', mural.id!)
-        .eq('user_id', usuarioActual.id);
-
-    await _cargarMurales();
-
-    if (!mounted) return;
-
-    _mostrarSnackBar(
-      '✅ Mural "$titulo" actualizado correctamente.',
-    );
-  } on PostgrestException catch (e) {
-    if (!mounted) return;
-
-    _mostrarSnackBar(
-      '❌ No se pudo actualizar el mural: ${e.message}',
-      isError: true,
-    );
-  } catch (e) {
-    if (!mounted) return;
-
-    _mostrarSnackBar(
-      '❌ Error al actualizar el mural: $e',
-      isError: true,
-    );
-  }
-}
 
   Future<void> _eliminarMural(Mural mural) async {
     final usuarioActual = supabase.auth.currentUser;
@@ -835,7 +830,7 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
     } catch (e) {
       if (!mounted) return;
 
-      _mostrarSnackBar('❌ Error al eliminar el mural: $e', isError: true);
+      _mostrarSnackBar('❌ ${mensajeErrorAmigable(e)}', isError: true);
     }
   }
 
@@ -1331,7 +1326,7 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
     } catch (e) {
       if (!mounted) return;
       Navigator.of(context).pop(); // Cierra _DialogoCarga
-      _mostrarSnackBar('❌ Error al guardar: $e', isError: true);
+      _mostrarSnackBar('❌ ${mensajeErrorAmigable(e)}', isError: true);
     }
   }
 
@@ -1464,6 +1459,376 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
         onPressed: _iniciarFlujoNuevoMural,
         icon: const Icon(Icons.add_a_photo),
         label: const Text('Nuevo Mural'),
+      ),
+    );
+  }
+}
+
+// ──────────────────────────────────────────────────────────────
+// HELPERS COMPARTIDOS: ORIGEN DE FOTO Y LIMPIEZA DE STORAGE
+// ──────────────────────────────────────────────────────────────
+
+/// Muestra un selector para elegir la fuente de una foto (cámara o
+/// galería) y devuelve el archivo elegido, o null si el usuario cancela.
+Future<XFile?> elegirFuenteFoto(BuildContext context) async {
+  final ImageSource? origen = await showModalBottomSheet<ImageSource>(
+    context: context,
+    builder: (ctx) => SafeArea(
+      child: Wrap(
+        children: [
+          ListTile(
+            leading: const Icon(Icons.photo_camera_outlined),
+            title: const Text('Tomar foto'),
+            onTap: () => Navigator.of(ctx).pop(ImageSource.camera),
+          ),
+          ListTile(
+            leading: const Icon(Icons.photo_library_outlined),
+            title: const Text('Elegir de galería'),
+            onTap: () => Navigator.of(ctx).pop(ImageSource.gallery),
+          ),
+        ],
+      ),
+    ),
+  );
+
+  if (origen == null) return null;
+
+  return ImagePicker().pickImage(
+    source: origen,
+    maxWidth: 1920,
+    maxHeight: 1920,
+    imageQuality: 85,
+  );
+}
+
+/// Intenta borrar una foto del bucket "murales" a partir de su URL
+/// pública. Es un intento best-effort: si falla, no interrumpe el flujo
+/// principal (en el peor caso queda un archivo huérfano recuperable
+/// manualmente desde el dashboard de Supabase).
+Future<void> borrarFotoDeStorage(String fotoUrl) async {
+  try {
+    final String nombreArchivo = fotoUrl.split('/').last;
+    await supabase.storage.from('murales').remove([nombreArchivo]);
+  } catch (_) {
+    // Best-effort: no bloquea el flujo si falla.
+  }
+}
+
+/// Convierte un error técnico en un mensaje corto y amigable para
+/// mostrar en pantalla. El detalle completo (URLs, stacktrace, etc.)
+/// queda solo en la consola de depuración, nunca en la interfaz.
+String mensajeErrorAmigable(Object error) {
+  debugPrint('Error técnico: $error');
+
+  final String texto = error.toString().toLowerCase();
+
+  if (texto.contains('socketexception') ||
+      texto.contains('failed host lookup') ||
+      texto.contains('network is unreachable') ||
+      texto.contains('connection refused') ||
+      texto.contains('timeout')) {
+    return 'Sin conexión a internet. Verifica tu red e inténtalo de nuevo.';
+  }
+
+  if (error is StorageException) {
+    return 'No se pudo subir la foto. Inténtalo de nuevo.';
+  }
+
+  if (error is PostgrestException) {
+    return 'No se pudo guardar el cambio. Inténtalo de nuevo.';
+  }
+
+  return 'Ocurrió un error inesperado. Inténtalo de nuevo.';
+}
+
+// ──────────────────────────────────────────────────────────────
+// MODAL DE EDICIÓN: TÍTULO + DESCRIPCIÓN + FOTO (OPCIONAL)
+// ──────────────────────────────────────────────────────────────
+class _EditarMuralModal extends StatefulWidget {
+  final Mural mural;
+
+  const _EditarMuralModal({required this.mural});
+
+  @override
+  State<_EditarMuralModal> createState() => _EditarMuralModalState();
+}
+
+class _EditarMuralModalState extends State<_EditarMuralModal> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _tituloController;
+  late final TextEditingController _descripcionController;
+  String? _nuevaFotoPath; // null = conserva la foto actual del mural
+  int _rotacion = 0; // solo aplica a la foto nueva, si se eligió una
+
+  @override
+  void initState() {
+    super.initState();
+    _tituloController = TextEditingController(text: widget.mural.titulo);
+    _descripcionController = TextEditingController(
+      text: widget.mural.descripcion ?? '',
+    );
+  }
+
+  @override
+  void dispose() {
+    _tituloController.dispose();
+    _descripcionController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _cambiarFoto() async {
+    final XFile? foto = await elegirFuenteFoto(context);
+    if (foto == null || !mounted) return;
+    setState(() {
+      _nuevaFotoPath = foto.path;
+      _rotacion = 0; // la rotación anterior no aplica a la foto nueva
+    });
+  }
+
+  void _rotarImagen() {
+    setState(() => _rotacion = (_rotacion + 90) % 360);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    final bool haySeleccionNueva = _nuevaFotoPath != null;
+
+    return Container(
+      margin: const EdgeInsets.only(top: 60),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: 20,
+          right: 20,
+          top: 20,
+          bottom: bottomInset + 20,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Handle visual
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              const Text(
+                'Editar mural',
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+
+              // Foto actual, o la nueva si se eligió una, + botón de rotar
+              Stack(
+                alignment: Alignment.bottomRight,
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: Container(
+                      constraints: const BoxConstraints(
+                        maxHeight: 260,
+                        minHeight: 160,
+                      ),
+                      width: double.infinity,
+                      color: Colors.grey[100],
+                      child: Center(
+                        child: haySeleccionNueva
+                            ? RotatedBox(
+                                quarterTurns: _rotacion ~/ 90,
+                                child: Image.file(
+                                  File(_nuevaFotoPath!),
+                                  fit: BoxFit.contain,
+                                ),
+                              )
+                            : (widget.mural.fotoUrl != null &&
+                                      widget.mural.fotoUrl!.isNotEmpty
+                                  ? Image.network(
+                                      widget.mural.fotoUrl!,
+                                      fit: BoxFit.contain,
+                                      errorBuilder: (_, _, _) => const Icon(
+                                        Icons.broken_image_outlined,
+                                        size: 40,
+                                        color: Colors.grey,
+                                      ),
+                                    )
+                                  : const Icon(
+                                      Icons.image_not_supported_outlined,
+                                      size: 40,
+                                      color: Colors.grey,
+                                    )),
+                      ),
+                    ),
+                  ),
+                  if (haySeleccionNueva)
+                    Padding(
+                      padding: const EdgeInsets.all(8.0),
+                      child: IconButton.filledTonal(
+                        onPressed: _rotarImagen,
+                        icon: const Icon(Icons.rotate_right),
+                        tooltip: 'Rotar imagen',
+                        style: IconButton.styleFrom(
+                          backgroundColor: Colors.white.withValues(
+                            alpha: 0.9,
+                          ),
+                          foregroundColor: Colors.deepPurple,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              TextButton.icon(
+                onPressed: _cambiarFoto,
+                icon: const Icon(Icons.photo_camera_outlined, size: 18),
+                label: Text(
+                  haySeleccionNueva ? 'Elegir otra foto' : 'Cambiar foto',
+                ),
+              ),
+              const SizedBox(height: 8),
+
+              // Info de coordenadas (no editable: la ubicación no cambia)
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.deepPurple.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.location_on,
+                      color: Colors.deepPurple,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Lat: ${widget.mural.latitud.toStringAsFixed(5)} | '
+                      'Lng: ${widget.mural.longitud.toStringAsFixed(5)}',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: Colors.deepPurple,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // Formulario
+              Form(
+                key: _formKey,
+                child: Column(
+                  children: [
+                    TextFormField(
+                      controller: _tituloController,
+                      decoration: InputDecoration(
+                        labelText: 'Título del mural *',
+                        prefixIcon: const Icon(Icons.title),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        filled: true,
+                        fillColor: Colors.grey[50],
+                      ),
+                      textCapitalization: TextCapitalization.sentences,
+                      validator: (value) {
+                        if (value == null || value.trim().isEmpty) {
+                          return 'El título es obligatorio';
+                        }
+                        if (value.trim().length < 3) {
+                          return 'Mínimo 3 caracteres';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: _descripcionController,
+                      decoration: InputDecoration(
+                        labelText: 'Descripción (opcional)',
+                        prefixIcon: const Icon(Icons.description),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        filled: true,
+                        fillColor: Colors.grey[50],
+                      ),
+                      textCapitalization: TextCapitalization.sentences,
+                      maxLines: 3,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              // Botones de acción
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.cancel_outlined),
+                      label: const Text('Cancelar'),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 2,
+                    child: FilledButton.icon(
+                      onPressed: () {
+                        if (_formKey.currentState!.validate()) {
+                          Navigator.of(context).pop({
+                            'titulo': _tituloController.text.trim(),
+                            'descripcion': _descripcionController.text
+                                .trim(),
+                            'rotacion': _rotacion,
+                            'nuevaFotoPath': _nuevaFotoPath,
+                          });
+                        }
+                      },
+                      icon: const Icon(Icons.save_outlined),
+                      label: const Text(
+                        'Guardar cambios',
+                        style: TextStyle(fontSize: 16),
+                      ),
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1725,7 +2090,13 @@ class _FormularioMuralModalState extends State<_FormularioMuralModal> {
 // DIÁLOGO DE CARGA DURANTE LA SUBIDA
 // ──────────────────────────────────────────────────────────────
 class _DialogoCarga extends StatelessWidget {
-  const _DialogoCarga();
+  final String mensaje;
+  final String submensaje;
+
+  const _DialogoCarga({
+    this.mensaje = 'Subiendo mural...',
+    this.submensaje = 'Comprimiendo imagen y guardando en la nube',
+  });
 
   @override
   Widget build(BuildContext context) {
