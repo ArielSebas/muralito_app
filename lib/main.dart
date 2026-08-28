@@ -107,6 +107,39 @@ class Mural {
   }
 }
 
+class Perfil {
+  final String id;
+  final String apodo;
+  final String? avatarUrl;
+  final DateTime? createdAt;
+
+  Perfil({
+    required this.id,
+    required this.apodo,
+    this.avatarUrl,
+    this.createdAt,
+  });
+
+  factory Perfil.fromMap(Map<String, dynamic> map) {
+    return Perfil(
+      id: map['id'] as String,
+      apodo: map['apodo'] as String? ?? 'Muralista',
+      avatarUrl: map['avatar_url'] as String?,
+      createdAt: map['created_at'] != null
+          ? DateTime.parse(map['created_at'] as String)
+          : null,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'apodo': apodo,
+      'avatar_url': avatarUrl,
+    };
+  }
+}
+
 // ──────────────────────────────────────────────────────────────
 // PÁGINA DE AUTENTICACIÓN: LOGIN / REGISTRO
 // ──────────────────────────────────────────────────────────────
@@ -354,6 +387,7 @@ class MapaPrincipalPage extends StatefulWidget {
 class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
   final MapController _mapController = MapController();
   final List<Mural> _murales = [];
+  Perfil? _perfilActual;
   bool _cargandoMurales = true;
   String? _errorMurales;
   StreamSubscription<AuthState>? _authSub;
@@ -364,8 +398,12 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
   void initState() {
     super.initState();
     _cargarMurales();
+    _cargarPerfilActual();
     _authSub = supabase.auth.onAuthStateChange.listen((_) {
-      if (mounted) setState(() {});
+      if (mounted) {
+        _cargarPerfilActual();
+        setState(() {});
+      }
     });
   }
 
@@ -373,6 +411,48 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
   void dispose() {
     _authSub?.cancel();
     super.dispose();
+  }
+
+  /// Consulta el perfil del usuario autenticado actual desde Supabase
+  Future<void> _cargarPerfilActual() async {
+    final user = supabase.auth.currentUser;
+    if (user == null) {
+      if (mounted) setState(() => _perfilActual = null);
+      return;
+    }
+
+    try {
+      final res = await supabase
+          .from('perfiles')
+          .select()
+          .eq('id', user.id)
+          .maybeSingle();
+
+      if (res != null && mounted) {
+        setState(() => _perfilActual = Perfil.fromMap(res));
+      }
+    } catch (_) {
+      // Best-effort: si falla la consulta, se mantiene el estado previo
+    }
+  }
+
+  Future<void> _abrirEditarPerfil() async {
+    final user = supabase.auth.currentUser;
+    if (user == null || _perfilActual == null) return;
+
+    final resultado = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _EditarPerfilModal(perfil: _perfilActual!),
+    );
+
+    if (resultado == true) {
+      await _cargarPerfilActual();
+      if (mounted) {
+        _mostrarSnackBar('✅ Perfil actualizado correctamente.');
+      }
+    }
   }
 
   /// Consulta los murales desde Supabase y actualiza el estado
@@ -1347,20 +1427,47 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Muralito 🎨'),
-            Text(
-              _haySesion
-                  ? (supabase.auth.currentUser?.email ?? 'Sesión activa')
-                  : 'Modo espectador',
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.normal,
-              ),
+        title: InkWell(
+          onTap: _haySesion ? _abrirEditarPerfil : null,
+          borderRadius: BorderRadius.circular(8),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_haySesion) ...[
+                  CircleAvatar(
+                    radius: 16,
+                    backgroundColor: Colors.deepPurple[100],
+                    backgroundImage: _perfilActual?.avatarUrl != null &&
+                            _perfilActual!.avatarUrl!.isNotEmpty
+                        ? NetworkImage(_perfilActual!.avatarUrl!)
+                        : null,
+                    child: _perfilActual?.avatarUrl == null ||
+                            _perfilActual!.avatarUrl!.isEmpty
+                        ? const Icon(Icons.person, size: 18, color: Colors.deepPurple)
+                        : null,
+                  ),
+                  const SizedBox(width: 8),
+                ],
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Muralito 🎨'),
+                    Text(
+                      _haySesion
+                          ? (_perfilActual?.apodo ?? 'Muralista')
+                          : 'Modo espectador',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.normal,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
-          ],
+          ),
         ),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
@@ -2139,6 +2246,248 @@ class _DialogoCarga extends StatelessWidget {
               style: TextStyle(fontSize: 13, color: Colors.grey),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+// ──────────────────────────────────────────────────────────────
+// MODAL DE EDICIÓN DE PERFIL (APODO + AVATAR)
+// ──────────────────────────────────────────────────────────────
+class _EditarPerfilModal extends StatefulWidget {
+  final Perfil perfil;
+
+  const _EditarPerfilModal({required this.perfil});
+
+  @override
+  State<_EditarPerfilModal> createState() => _EditarPerfilModalState();
+}
+
+class _EditarPerfilModalState extends State<_EditarPerfilModal> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _apodoController;
+  String? _nuevoAvatarPath;
+  bool _guardando = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _apodoController = TextEditingController(text: widget.perfil.apodo);
+  }
+
+  @override
+  void dispose() {
+    _apodoController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _cambiarAvatar() async {
+    final XFile? foto = await elegirFuenteFoto(context);
+    if (foto == null || !mounted) return;
+    setState(() => _nuevoAvatarPath = foto.path);
+  }
+
+  Future<void> _guardarPerfil() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() => _guardando = true);
+
+    String? nuevaUrl = widget.perfil.avatarUrl;
+
+    try {
+      if (_nuevoAvatarPath != null) {
+        final Uint8List? bytes = await FlutterImageCompress.compressWithFile(
+          _nuevoAvatarPath!,
+          minWidth: 400,
+          minHeight: 400,
+          quality: 80,
+          autoCorrectionAngle: true,
+        );
+
+        if (bytes == null) throw Exception('Error al comprimir avatar');
+
+        final String nombreArchivo =
+            'avatar_${widget.perfil.id}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+
+        await supabase.storage.from('murales').uploadBinary(
+              nombreArchivo,
+              bytes,
+              fileOptions: const FileOptions(contentType: 'image/jpeg'),
+            );
+
+        nuevaUrl = supabase.storage.from('murales').getPublicUrl(nombreArchivo);
+
+        if (widget.perfil.avatarUrl != null &&
+            widget.perfil.avatarUrl!.isNotEmpty) {
+          await borrarFotoDeStorage(widget.perfil.avatarUrl!);
+        }
+      }
+
+      await supabase.from('perfiles').update({
+        'apodo': _apodoController.text.trim(),
+        'avatar_url': nuevaUrl,
+      }).eq('id', widget.perfil.id);
+
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ ${mensajeErrorAmigable(e)}'),
+            backgroundColor: Colors.red[700],
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _guardando = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+
+    return Container(
+      margin: const EdgeInsets.only(top: 80),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: 20,
+          right: 20,
+          top: 20,
+          bottom: bottomInset + 20,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              const Text(
+                'Mi Perfil',
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 20),
+
+              Center(
+                child: Stack(
+                  children: [
+                    CircleAvatar(
+                      radius: 50,
+                      backgroundColor: Colors.deepPurple[100],
+                      backgroundImage: _nuevoAvatarPath != null
+                          ? FileImage(File(_nuevoAvatarPath!))
+                          : (widget.perfil.avatarUrl != null &&
+                                  widget.perfil.avatarUrl!.isNotEmpty
+                              ? NetworkImage(widget.perfil.avatarUrl!)
+                              : null) as ImageProvider?,
+                      child: _nuevoAvatarPath == null &&
+                              (widget.perfil.avatarUrl == null ||
+                                  widget.perfil.avatarUrl!.isEmpty)
+                          ? const Icon(Icons.person, size: 50, color: Colors.deepPurple)
+                          : null,
+                    ),
+                    Positioned(
+                      bottom: 0,
+                      right: 0,
+                      child: IconButton.filled(
+                        onPressed: _cambiarAvatar,
+                        icon: const Icon(Icons.camera_alt, size: 20),
+                        style: IconButton.styleFrom(
+                          backgroundColor: Colors.deepPurple,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              Form(
+                key: _formKey,
+                child: TextFormField(
+                  controller: _apodoController,
+                  decoration: InputDecoration(
+                    labelText: 'Apodo / Nombre artístico *',
+                    prefixIcon: const Icon(Icons.badge_outlined),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    filled: true,
+                    fillColor: Colors.grey[50],
+                  ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'El apodo es obligatorio';
+                    }
+                    if (value.trim().length < 2) {
+                      return 'Mínimo 2 caracteres';
+                    }
+                    return null;
+                  },
+                ),
+              ),
+              const SizedBox(height: 28),
+
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: _guardando ? null : () => Navigator.of(context).pop(),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text('Cancelar'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 2,
+                    child: FilledButton.icon(
+                      onPressed: _guardando ? null : _guardarPerfil,
+                      icon: _guardando
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.save_outlined),
+                      label: const Text('Guardar Perfil', style: TextStyle(fontSize: 16)),
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );

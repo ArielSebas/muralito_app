@@ -10,6 +10,8 @@ Muralito permite registrar murales mediante una fotografía, obtener su ubicaci�
 
 * 🗺️ Mapa interactivo con OpenStreetMap, con **modo espectador** (explorar sin cuenta).
 * 🔐 Autenticación con correo y contraseña (Supabase Auth), con confirmación de correo y logout sin salir del mapa.
+* 👤 **Perfil de usuario:** Perfil básico automático (apodo y avatar) gestionado con tabla `perfiles` y trigger en PostgreSQL. Visualización del apodo y avatar en el `AppBar`[cite: 15, 17].
+* ✏️ **Edición de perfil:** Modal interactivo para personalizar apodo y foto de perfil (cámara o galería), con compresión y reemplazo seguro sin huérfanos en Storage[cite: 15, 17].
 * 📷 Registro de murales: cámara → GPS → formulario → compresión → Supabase Storage → PostgreSQL.
 * 🔄 Corrección automática de orientación (EXIF) + rotación manual antes de guardar.
 * ✏️ Edición de murales propios (título, descripción y **foto**, desde cámara o galería), sin dejar archivos huérfanos en Storage si algo falla a mitad de camino.
@@ -23,11 +25,13 @@ Muralito permite registrar murales mediante una fotografía, obtener su ubicaci�
 
 ## 🚧 Próximos pasos
 
-El backlog completo, priorizado y con ideas a futuro, se documenta aparte en **Mejoras priorizadas**. A modo de resumen, lo siguiente en la fila:
+El backlog completo, priorizado y con ideas a futuro, se documenta aparte en **Mejoras priorizadas**[cite: 14, 16]. A modo de resumen, lo siguiente en la fila:
 
-* **A1.4** — Historial de versiones del mural (cuando se repinta un muro, conservar el mural anterior en vez de perderlo).
-* **A2** — Perfil básico de usuario (apodo + foto).
-* **A3 / A4** — Mostrar y registrar el autor en la ficha del mural.
+* **A3** — Mostrar el autor en la ficha de detalle del mural (`Subido por: [avatar] [apodo]`)[cite: 14, 16].
+* **A4** — Vincular información del autor durante el registro[cite: 16].
+* **A1.4** — Historial de versiones del mural (cuando se repinta un muro, conservar el mural anterior en vez de perderlo)[cite: 14, 16].
+* **M4** — "Cómo llegar" directo a Google Maps[cite: 16].
+* **M7** — Visor de imagen con zoom interactivo (*pinch-to-zoom*)[cite: 16].
 
 ---
 
@@ -44,8 +48,8 @@ El backlog completo, priorizado y con ideas a futuro, se documenta aparte en **M
 | Cámara / galería | `image_picker` |
 | Compresión | `flutter_image_compress` |
 | Backend | Supabase (PostgreSQL + Auth + Storage) |
-| Variables de entorno | `flutter_dotenv` |
-| Enlaces externos | `url_launcher` |
+| Variables de entorno | `flutter_dotenv`[cite: 14, 15] |
+| Enlaces externos | `url_launcher`[cite: 14, 15] |
 
 ```yaml
 supabase_flutter: ^2.17.2
@@ -57,7 +61,6 @@ flutter_image_compress: ^2.5.1
 flutter_dotenv: ^6.0.1
 url_launcher: ^6.3.1
 cupertino_icons: ^1.0.8
-```
 
 ---
 
@@ -105,6 +108,17 @@ SUPABASE_ANON_KEY=TU_SUPABASE_ANON_KEY
 | user_id | uuid | Sí |
 
 **Row Level Security:** `SELECT` público (modo espectador); `INSERT`/`UPDATE`/`DELETE` restringidos al propietario (`auth.uid() = user_id`).
+
+Tabla perfiles (PostgreSQL)
+Campo Tipo Nullable
+id uuid (PK, references auth.users) No  
+apodo text No  
+avatar_url text Sí  
+created_at timestamptz No  
+
+Row Level Security (perfiles): SELECT público; INSERT/UPDATE restringidos al propio usuario (auth.uid() = id).  
+
+---
 
 **Storage — bucket `murales`** (público): `SELECT` público, `INSERT` y `DELETE` solo para usuarios autenticados (el `DELETE` es necesario para poder reemplazar la foto de un mural sin acumular archivos huérfanos).
 
