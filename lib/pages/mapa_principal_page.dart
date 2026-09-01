@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -8,6 +9,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../services/supabase_client.dart';
 import '../models/mural.dart';
 import '../models/perfil.dart';
@@ -31,6 +33,7 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
   Perfil? _perfilActual;
   bool _cargandoMurales = true;
   String? _errorMurales;
+  bool _mapaInteractivo = true;
   StreamSubscription<AuthState>? _authSub;
 
   bool get _haySesion => supabase.auth.currentUser != null;
@@ -211,7 +214,7 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
   void _zoomHaciaGrupo(List<Mural> grupo) {
     final LatLng centro = _centroDelGrupo(grupo);
     final double zoomActual = _mapController.camera.zoom;
-    final double nuevoZoom = (zoomActual + 2).clamp(0.0, 19.0);
+    final double nuevoZoom = (zoomActual + 2).clamp(6.0, 18.0);
     _mapController.move(centro, nuevoZoom);
   }
 
@@ -274,10 +277,11 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
   /// Muestra una lista con los murales de un cluster para que el usuario
   /// elija cuál quiere ver en detalle (cubre el caso de murales tan cercanos
   /// que ni haciendo zoom se separan visualmente).
-  void _mostrarGrupoMurales(List<Mural> grupo) {
-    showModalBottomSheet(
+  Future<void> _mostrarGrupoMurales(List<Mural> grupo) async {
+    setState(() => _mapaInteractivo = false);
+
+    final Mural? elegido = await showModalBottomSheet<Mural>(
       context: context,
-      isScrollControlled: true,
       builder: (ctx) {
         return SafeArea(
           child: ListView(
@@ -335,10 +339,7 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
                           overflow: TextOverflow.ellipsis,
                         )
                       : null,
-                  onTap: () {
-                    Navigator.of(ctx).pop();
-                    _mostrarDetalleMural(mural);
-                  },
+                  onTap: () => Navigator.of(ctx).pop(mural),
                 );
               }),
             ],
@@ -346,6 +347,14 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
         );
       },
     );
+
+    if (elegido != null) {
+      await _mostrarDetalleMural(elegido);
+      return;
+    }
+
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    if (mounted) setState(() => _mapaInteractivo = true);
   }
 
   Future<void> _editarMural(Mural mural) async {
@@ -563,13 +572,15 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
   /// Muestra un diálogo con los detalles del mural seleccionado
   /// Ficha de detalle del mural (bottom sheet).
   /// Siempre muestra título, descripción y coordenadas aunque la foto falle.
-  void _mostrarDetalleMural(Mural mural) {
+  Future<void> _mostrarDetalleMural(Mural mural) async {
     final usuarioActual = supabase.auth.currentUser;
     final bool esPropietario =
         usuarioActual != null &&
         mural.userId != null &&
         mural.userId == usuarioActual.id;
-    showModalBottomSheet(
+
+    setState(() => _mapaInteractivo = false);
+    await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -613,6 +624,7 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
                           ? Image.network(
                               mural.fotoUrl!,
                               fit: BoxFit.contain,
+                              cacheWidth: 900,
                               loadingBuilder: (context, child, progress) {
                                 if (progress == null) return child;
                                 return Container(
@@ -810,6 +822,9 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
         );
       },
     );
+
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    if (mounted) setState(() => _mapaInteractivo = true);
   }
 
   Future<void> _abrirComoLlegar(double lat, double lng) async {
@@ -1085,13 +1100,19 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
                   CircleAvatar(
                     radius: 16,
                     backgroundColor: Colors.deepPurple[100],
-                    backgroundImage: _perfilActual?.avatarUrl != null &&
+                    backgroundImage:
+                        _perfilActual?.avatarUrl != null &&
                             _perfilActual!.avatarUrl!.isNotEmpty
                         ? NetworkImage(_perfilActual!.avatarUrl!)
                         : null,
-                    child: _perfilActual?.avatarUrl == null ||
+                    child:
+                        _perfilActual?.avatarUrl == null ||
                             _perfilActual!.avatarUrl!.isEmpty
-                        ? const Icon(Icons.person, size: 18, color: Colors.deepPurple)
+                        ? const Icon(
+                            Icons.person,
+                            size: 18,
+                            color: Colors.deepPurple,
+                          )
                         : null,
                   ),
                   const SizedBox(width: 8),
@@ -1145,14 +1166,25 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
         children: [
           FlutterMap(
             mapController: _mapController,
-            options: const MapOptions(
-              initialCenter: LatLng(-0.2800, -78.5450),
+            options: MapOptions(
+              initialCenter: const LatLng(-0.2800, -78.5450),
               initialZoom: 14.0,
+              minZoom: 6,
+              maxZoom: 18,
+              backgroundColor: const Color(0xFFE8E4DC),
+              interactionOptions: InteractionOptions(
+                flags: _mapaInteractivo
+                    ? (InteractiveFlag.all & ~InteractiveFlag.flingAnimation)
+                    : InteractiveFlag.none,
+              ),
             ),
             children: [
               TileLayer(
                 urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                 userAgentPackageName: 'com.example.muralito_app',
+                maxNativeZoom: 19,
+                keepBuffer: 1,
+                panBuffer: 1,
               ),
               MarkerLayer(markers: _buildMarkers()),
             ],

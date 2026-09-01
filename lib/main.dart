@@ -6,6 +6,9 @@ import 'pages/mapa_principal_page.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  PaintingBinding.instance.imageCache.maximumSize = 80;
+  PaintingBinding.instance.imageCache.maximumSizeBytes = 40 << 20; // 40 MB
+
   await dotenv.load(fileName: ".env");
 
   await Supabase.initialize(
