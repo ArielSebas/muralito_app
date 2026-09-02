@@ -8,31 +8,51 @@ Muralito permite registrar murales mediante una fotografía, obtener su ubicaci�
 
 ## 📱 Características actuales
 
-* 🗺️ Mapa interactivo con OpenStreetMap, con **modo espectador** (explorar sin cuenta).
+* 🗺️ Mapa interactivo con OpenStreetMap y **modo espectador** (explorar sin cuenta).
 * 🔐 Autenticación con correo y contraseña (Supabase Auth), con confirmación de correo y logout sin salir del mapa.
-* 👤 **Perfil de usuario:** Perfil básico automático (apodo y avatar) gestionado con tabla `perfiles` y trigger en PostgreSQL. Visualización del apodo y avatar en el `AppBar`.
-* ✏️ **Edición de perfil:** Modal interactivo para personalizar apodo y foto de perfil (cámara o galería), con compresión y reemplazo seguro sin huérfanos en Storage.
-* 📷 Registro de murales: cámara → GPS → formulario → compresión → Supabase Storage → PostgreSQL.
-* 🔄 Corrección automática de orientación (EXIF) + rotación manual antes de guardar.
-* ✏️ Edición de murales propios (título, descripción y **foto**, desde cámara o galería), sin dejar archivos huérfanos en Storage si algo falla a mitad de camino.
-* 🗑️ Eliminación de murales propios con limpieza automática de la foto en Storage, protegida en la interfaz y con Row Level Security en Supabase.
-* 🧩 Agrupamiento (clustering) de murales muy cercanos (radio de 30 m), con lista de selección y zoom de contexto al tocar un grupo.
-* 💬 Mensajes de error breves y en español en toda la app, en vez de excepciones técnicas crudas.
-* 🧭 Opción "Cómo llegar" desde la ficha de cada mural.
+* 👤 **Perfil de usuario:** apodo y avatar automáticos (`perfiles` + trigger). Se ven en el `AppBar` y se pueden editar (cámara o galería) sin dejar huérfanos en Storage.
+* 🧑‍🎨 **Subido por** (A3, Prueba 013): la ficha muestra avatar y apodo de quien cargó el mural. También se ve en modo espectador. Si el registro es antiguo y no tiene `user_id`, se etiqueta **Muralista anónimo**.
+* 📷 Registro de murales: cámara → GPS → formulario → compresión → Storage → PostgreSQL, con `user_id` del usuario autenticado.
+* 🔄 Corrección EXIF + rotación manual antes de guardar.
+* ✏️ Edición de murales propios (título, descripción y foto), sin dejar archivos huérfanos si algo falla a mitad de camino.
+* 🗑️ Eliminación de murales propios con limpieza de la foto en Storage, protegida en la interfaz y con RLS.
+* 🧩 Clustering de murales a menos de 30 m, con lista de selección y zoom de contexto.
+* 🗺️ Zoom del mapa limitado (niveles 6–18) para evitar cuelgues por falta de memoria al pellizcar.
+* 💬 Mensajes de error breves y en español.
+* 🧭 “Cómo llegar” desde la ficha (OpenStreetMap).
 * 📄 Licencia MIT.
+
+> **A4 no está implementado.** “Subido por” no es el autor de la pintura. Ver *Próximos pasos*.
 
 ---
 
 ## 🚧 Próximos pasos
 
-El backlog completo, priorizado y con ideas a futuro, se documenta aparte en **Mejoras priorizadas**. A modo de resumen, lo siguiente en la fila:
+El backlog detallado está en **Mejoras priorizadas**.
 
-* **A3** — Mostrar el autor en la ficha de detalle del mural (`Subido por: [avatar] [apodo]`).
-* **A4** — Vincular información del autor durante el registro.
-* **A1.4** — Historial de versiones del mural (cuando se repinta un muro, conservar el mural anterior en vez de perderlo).
-* **M1** — Validación de contraseña fuerte (mínimo 8 caracteres, mayúscula, minúscula, número y especial).
-* **M4** — "Cómo llegar" directo a Google Maps.
-* **M7** — Visor de imagen con zoom interactivo (*pinch-to-zoom*).
+### Alta — producto (pendiente, no implementar aún)
+
+* **A4 — Autor del mural ≠ quien sube**
+  * En la ficha deben verse **dos** cosas: **Subido por** (cuenta que cargó la foto, ya existe) y **Autor del mural** (quien lo pintó / la firma).
+  * Al registrar o editar: campo opcional para el nombre o perfil del artista.
+  * Para todo el mundo: **“¿Eres el autor? Reclámalo”** (pide sesión). Así el artista puede atribuirse la obra aunque otra persona la haya fotografiado.
+  * Distinto de “publicar ocultando el apodo”: eso es otra idea, más adelante.
+
+### Alta — cuentas (siguiente parche chico)
+
+* **M1** — Contraseña fuerte (mín. 8, mayúscula, minúscula, número y especial).
+* **M2** — Recuperar contraseña.
+
+### Media
+
+* **M4** — “Cómo llegar” a Google Maps.
+* **M7** — Visor de imagen con pinch-to-zoom.
+* **A1.4** — Historial de versiones si se repinta el muro.
+
+### Más adelante
+
+* Publicar logueado pero ocultando el apodo (“como anónimo”).
+* B1 — Restringir el listado público del bucket.
 
 ---
 
@@ -65,7 +85,6 @@ dependencies:
   flutter_image_compress: ^2.5.1
   flutter_dotenv: ^6.0.1
   url_launcher: ^6.3.1
-```
 
 ---
 
@@ -115,11 +134,15 @@ flutter run
 | longitud | double precision | No |
 | user_id | uuid (references auth.users) | Sí |
 
+user_id = quien subió el mural, no necesariamente el artista (A4 pendiente).
+
 **Row Level Security:**
 * `SELECT`: Público (`anon` y `authenticated`)
 * `INSERT`: Solo `authenticated` con `auth.uid() = user_id`
 * `UPDATE`: Solo propietario (`auth.uid() = user_id`)
 * `DELETE`: Solo propietario (`auth.uid() = user_id`)
+
+Los murales sin user_id (pruebas antiguas) no se pueden borrar desde la app. Eliminarlos en Table Editor.
 
 ### Tabla `perfiles` (PostgreSQL)
 
@@ -177,33 +200,32 @@ La galería no requiere permiso adicional en el manifiesto; `image_picker` lo ge
 
 ## 📁 Estructura del proyecto
 
-```text
+
 muralito_app/
 ├── android/app/src/main/AndroidManifest.xml
 ├── lib/
-│   ├── main.dart                          # Inicialización + AuthGate
+│   ├── main.dart
 │   ├── models/
-│   │   ├── mural.dart                     # Modelo Mural
-│   │   └── perfil.dart                    # Modelo Perfil
+│   │   ├── mural.dart
+│   │   └── perfil.dart
 │   ├── pages/
-│   │   ├── auth_page.dart                 # Login / Registro
-│   │   └── mapa_principal_page.dart       # Mapa, clustering, lógica principal
+│   │   ├── auth_page.dart
+│   │   └── mapa_principal_page.dart
 │   ├── services/
-│   │   └── supabase_client.dart           # Cliente Supabase global
+│   │   └── supabase_client.dart
 │   ├── utils/
-│   │   └── helpers.dart                   # Helpers reutilizables
+│   │   └── helpers.dart
 │   └── widgets/
 │       ├── dialogo_carga.dart
 │       ├── editar_mural_modal.dart
 │       ├── editar_perfil_modal.dart
 │       └── formulario_mural_modal.dart
-├── .env                                   # local, ignorado por Git
-├── .env.example                           # plantilla pública
+├── .env
+├── .env.example
 ├── .gitignore
 ├── LICENSE
 ├── pubspec.yaml
 └── README.md
-```
 
 ---
 

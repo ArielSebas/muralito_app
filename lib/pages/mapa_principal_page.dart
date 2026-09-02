@@ -116,6 +116,36 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
           .map((m) => Mural.fromMap(m))
           .toList();
 
+      final ids = muralesCargados
+          .map((m) => m.userId)
+          .whereType<String>()
+          .toSet()
+          .toList();
+
+      if (ids.isNotEmpty) {
+        final perfilesRes = await supabase
+            .from('perfiles')
+            .select()
+            .inFilter('id', ids);
+
+        final Map<String, Perfil> porId = {};
+        for (final fila in (perfilesRes as List)) {
+          final perfil = Perfil.fromMap(fila);
+          porId[perfil.id] = perfil;
+        }
+
+        for (var i = 0; i < muralesCargados.length; i++) {
+          final mural = muralesCargados[i];
+          final perfil = mural.userId != null ? porId[mural.userId] : null;
+          if (perfil != null) {
+            muralesCargados[i] = mural.conAutor(
+              apodo: perfil.apodo,
+              avatarUrl: perfil.avatarUrl,
+            );
+          }
+        }
+      }
+
       setState(() {
         _murales.clear();
         _murales.addAll(muralesCargados);
@@ -569,6 +599,53 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
     }
   }
 
+  Widget _filaAutor(Mural mural) {
+    final bool hayApodo =
+        mural.autorApodo != null && mural.autorApodo!.trim().isNotEmpty;
+    final String apodo = hayApodo
+        ? mural.autorApodo!.trim()
+        : 'Muralista anónimo';
+    final String? avatar = mural.autorAvatarUrl;
+
+    return Row(
+      children: [
+        CircleAvatar(
+          radius: 18,
+          backgroundColor: Colors.grey[300],
+          backgroundImage: avatar != null && avatar.isNotEmpty
+              ? NetworkImage(avatar)
+              : null,
+          child: avatar == null || avatar.isEmpty
+              ? Icon(
+                  Icons.person,
+                  size: 20,
+                  color: hayApodo ? Colors.deepPurple : Colors.grey[600],
+                )
+              : null,
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Subido por',
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              ),
+              Text(
+                apodo,
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   /// Muestra un diálogo con los detalles del mural seleccionado
   /// Ficha de detalle del mural (bottom sheet).
   /// Siempre muestra título, descripción y coordenadas aunque la foto falle.
@@ -682,7 +759,9 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 12),
+                  _filaAutor(mural),
+                  const SizedBox(height: 12),
 
                   // Descripción
                   if (mural.descripcion != null &&

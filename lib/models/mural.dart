@@ -7,6 +7,8 @@ class Mural {
   final double longitud;
   final DateTime? createdAt;
   final String? userId;
+  final String? autorApodo;
+  final String? autorAvatarUrl;
 
   Mural({
     this.id,
@@ -17,6 +19,8 @@ class Mural {
     required this.longitud,
     this.createdAt,
     this.userId,
+    this.autorApodo,
+    this.autorAvatarUrl,
   });
 
   factory Mural.fromMap(Map<String, dynamic> map) {
@@ -31,6 +35,21 @@ class Mural {
           ? DateTime.parse(map['created_at'] as String)
           : null,
       userId: map['user_id'] as String?,
+    );
+  }
+
+  Mural conAutor({String? apodo, String? avatarUrl}) {
+    return Mural(
+      id: id,
+      titulo: titulo,
+      descripcion: descripcion,
+      fotoUrl: fotoUrl,
+      latitud: latitud,
+      longitud: longitud,
+      createdAt: createdAt,
+      userId: userId,
+      autorApodo: apodo,
+      autorAvatarUrl: avatarUrl,
     );
   }
 
