@@ -976,10 +976,10 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
 
     // 5. Subir imagen y guardar en BD
     await _subirMural(
-      foto: foto,
-      titulo: resultado['titulo'] as String,
-      descripcion: resultado['descripcion'] as String,
-      rotacionManual: resultado['rotacion'] as int? ?? 0,
+      titulo: resultado['titulo'],
+      descripcion: resultado['descripcion'],
+      imagePath: foto.path,
+      rotacion: resultado['rotacion'],
       latitud: posicion.latitude,
       longitud: posicion.longitude,
     );
@@ -1064,89 +1064,167 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
 
   /// Comprime la imagen, la sube a Storage y guarda el registro en PostgreSQL
   Future<void> _subirMural({
-    required XFile foto,
     required String titulo,
-    required String descripcion,
-    required int rotacionManual,
+    required String? descripcion,
+    required String imagePath,
+    required int rotacion,
     required double latitud,
     required double longitud,
   }) async {
-    if (!mounted) return;
+    final usuario = supabase.auth.currentUser;
 
-    final userId = supabase.auth.currentUser?.id;
-    if (userId == null) {
-      _mostrarSnackBar(
-        'Debes iniciar sesión para registrar un mural.',
-        isError: true,
-      );
+    if (usuario == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Debes iniciar sesión para subir un mural.'),
+          ),
+        );
+      }
       return;
     }
 
-    // Mostrar diálogo de carga
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => const DialogoCarga(),
-    );
+    bool dialogoAbierto = false;
+    String? nombreArchivoSubido;
 
     try {
-      // ── Compresión de imagen con corrección de orientación ──
-      final Uint8List? imagenComprimida =
-          await FlutterImageCompress.compressWithFile(
-            foto.path,
-            minWidth: 1200,
-            minHeight: 1200,
-            quality: 80,
-            rotate: rotacionManual,
-            autoCorrectionAngle: true,
-          );
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const DialogoCarga(
+          mensaje: 'Guardando mural...',
+          submensaje: 'Preparando la fotografía',
+        ),
+      );
 
-      if (imagenComprimida == null) {
-        throw Exception('No se pudo comprimir la imagen');
+      dialogoAbierto = true;
+
+      // ------------------------------------------------------------
+      // 1. Comprimir y corregir orientación de la imagen
+      // ------------------------------------------------------------
+      final bytes = await FlutterImageCompress.compressWithFile(
+        imagePath,
+        minWidth: 1200,
+        minHeight: 1200,
+        quality: 80,
+        format: CompressFormat.jpeg,
+        rotate: rotacion,
+        autoCorrectionAngle: true,
+      );
+
+      if (bytes == null || bytes.isEmpty) {
+        throw Exception('No se pudo procesar la fotografía.');
       }
 
-      // ── Subida a Supabase Storage ──
-      final String nombreArchivo =
-          '${DateTime.now().millisecondsSinceEpoch}_${titulo.replaceAll(' ', '_')}.jpg';
+      // ------------------------------------------------------------
+      // 2. Generar nombre único para Storage
+      // ------------------------------------------------------------
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
 
+      final tituloLimpio = titulo.trim().replaceAll(
+        RegExp(r'[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ_-]'),
+        '_',
+      );
+
+      nombreArchivoSubido = '${timestamp}_$tituloLimpio.jpg';
+
+      // ------------------------------------------------------------
+      // 3. Subir fotografía a Storage
+      // ------------------------------------------------------------
       await supabase.storage
           .from('murales')
           .uploadBinary(
-            nombreArchivo,
-            imagenComprimida,
-            fileOptions: const FileOptions(contentType: 'image/jpeg'),
+            nombreArchivoSubido,
+            Uint8List.fromList(bytes),
+            fileOptions: const FileOptions(
+              contentType: 'image/jpeg',
+              upsert: false,
+            ),
           );
 
-      // Obtener URL pública
-      final String fotoUrl = supabase.storage
+      // ------------------------------------------------------------
+      // 4. Obtener URL pública
+      // ------------------------------------------------------------
+      final fotoUrl = supabase.storage
           .from('murales')
-          .getPublicUrl(nombreArchivo);
+          .getPublicUrl(nombreArchivoSubido);
 
-      // ── Insertar registro en PostgreSQL ──
-      final nuevoMural = Mural(
-        titulo: titulo,
-        descripcion: descripcion.isNotEmpty ? descripcion : null,
+      // ------------------------------------------------------------
+      // 5. Insertar mural en PostgreSQL
+      // ------------------------------------------------------------
+      final mural = Mural(
+        titulo: titulo.trim(),
+        descripcion: descripcion?.trim().isEmpty == true
+            ? null
+            : descripcion?.trim(),
         fotoUrl: fotoUrl,
         latitud: latitud,
         longitud: longitud,
-        userId: userId,
+        userId: usuario.id,
       );
 
-      await supabase.from('murales').insert(nuevoMural.toMap());
+      try {
+        await supabase.from('murales').insert(mural.toMap());
+      } catch (error) {
+        // ----------------------------------------------------------
+        // 5.1 PostgreSQL falló después de subir Storage.
+        //
+        // Intentamos eliminar únicamente el archivo que acabamos
+        // de subir para evitar dejar un archivo huérfano.
+        // ----------------------------------------------------------
+        try {
+          await supabase.storage.from('murales').remove([nombreArchivoSubido]);
+        } catch (cleanupError) {
+          debugPrint(
+            'No se pudo eliminar el archivo después del fallo '
+            'del INSERT: $cleanupError',
+          );
+        }
 
-      // Cerrar diálogo de carga
+        rethrow;
+      }
+
+      // ------------------------------------------------------------
+      // 6. Cerrar diálogo de carga
+      // ------------------------------------------------------------
+      if (dialogoAbierto && mounted) {
+        Navigator.of(context).pop();
+        dialogoAbierto = false;
+      }
+
       if (!mounted) return;
-      Navigator.of(context).pop(); // Cierra DialogoCarga
 
-      _mostrarSnackBar('✅ Mural "$titulo" guardado exitosamente!');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Mural guardado correctamente.')),
+      );
 
-      // Refrescar mapa y centrar en el nuevo mural
+      // ------------------------------------------------------------
+      // 7. Recargar murales
+      // ------------------------------------------------------------
       await _cargarMurales();
-      _mapController.move(LatLng(latitud, longitud), 16.0);
-    } catch (e) {
+
+      // ------------------------------------------------------------
+      // 8. Centrar mapa en el mural recién creado
+      // ------------------------------------------------------------
+      if (mounted) {
+        _mapController.move(LatLng(latitud, longitud), 16);
+      }
+    } catch (error) {
+      // --------------------------------------------------------------
+      // Si algo falló antes del INSERT, no hay archivo que limpiar.
+      //
+      // Si el INSERT falló, el bloque interno ya intentó eliminar
+      // el archivo.
+      // --------------------------------------------------------------
+      if (dialogoAbierto && mounted) {
+        Navigator.of(context).pop();
+        dialogoAbierto = false;
+      }
+
       if (!mounted) return;
-      Navigator.of(context).pop(); // Cierra DialogoCarga
-      _mostrarSnackBar('❌ ${mensajeErrorAmigable(e)}', isError: true);
+
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(mensajeErrorAmigable(error))));
     }
   }
 
