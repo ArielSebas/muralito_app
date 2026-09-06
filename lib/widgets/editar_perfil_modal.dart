@@ -1,12 +1,8 @@
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:flutter_image_compress/flutter_image_compress.dart';
 // ignore: unnecessary_import
 import 'package:image_picker/image_picker.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/perfil.dart';
-import '../services/supabase_client.dart';
 import '../utils/helpers.dart';
 
 class EditarPerfilModal extends StatefulWidget {
@@ -22,7 +18,6 @@ class _EditarPerfilModalState extends State<EditarPerfilModal> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _apodoController;
   String? _nuevoAvatarPath;
-  bool _guardando = false;
 
   @override
   void initState() {
@@ -42,60 +37,12 @@ class _EditarPerfilModalState extends State<EditarPerfilModal> {
     setState(() => _nuevoAvatarPath = foto.path);
   }
 
-  Future<void> _guardarPerfil() async {
+  void _guardar() {
     if (!_formKey.currentState!.validate()) return;
-
-    setState(() => _guardando = true);
-
-    String? nuevaUrl = widget.perfil.avatarUrl;
-
-    try {
-      if (_nuevoAvatarPath != null) {
-        final Uint8List? bytes = await FlutterImageCompress.compressWithFile(
-          _nuevoAvatarPath!,
-          minWidth: 400,
-          minHeight: 400,
-          quality: 80,
-          autoCorrectionAngle: true,
-        );
-
-        if (bytes == null) throw Exception('Error al comprimir avatar');
-
-        final String nombreArchivo =
-            'avatar_${widget.perfil.id}_${DateTime.now().millisecondsSinceEpoch}.jpg';
-
-        await supabase.storage.from('murales').uploadBinary(
-              nombreArchivo,
-              bytes,
-              fileOptions: const FileOptions(contentType: 'image/jpeg'),
-            );
-
-        nuevaUrl = supabase.storage.from('murales').getPublicUrl(nombreArchivo);
-
-        if (widget.perfil.avatarUrl != null &&
-            widget.perfil.avatarUrl!.isNotEmpty) {
-          await borrarFotoDeStorage(widget.perfil.avatarUrl!);
-        }
-      }
-
-      await supabase.from('perfiles').update({
-        'apodo': _apodoController.text.trim(),
-        'avatar_url': nuevaUrl,
-      }).eq('id', widget.perfil.id);
-
-      if (mounted) Navigator.of(context).pop(true);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('❌ ${mensajeErrorAmigable(e)}'),
-            backgroundColor: Colors.red[700],
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _guardando = false);
-    }
+    Navigator.of(context).pop({
+      'apodo': _apodoController.text.trim(),
+      'nuevoAvatarPath': _nuevoAvatarPath,
+    });
   }
 
   @override
@@ -204,7 +151,7 @@ class _EditarPerfilModalState extends State<EditarPerfilModal> {
                 children: [
                   Expanded(
                     child: OutlinedButton(
-                      onPressed: _guardando ? null : () => Navigator.of(context).pop(),
+                      onPressed: () => Navigator.of(context).pop(),
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
@@ -218,17 +165,8 @@ class _EditarPerfilModalState extends State<EditarPerfilModal> {
                   Expanded(
                     flex: 2,
                     child: FilledButton.icon(
-                      onPressed: _guardando ? null : _guardarPerfil,
-                      icon: _guardando
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : const Icon(Icons.save_outlined),
+                      onPressed: _guardar,
+                      icon: const Icon(Icons.save_outlined),
                       label: const Text('Guardar Perfil', style: TextStyle(fontSize: 16)),
                       style: FilledButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 14),

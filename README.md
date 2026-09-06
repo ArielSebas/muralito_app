@@ -2,57 +2,145 @@
 
 Aplicación móvil desarrollada con **Flutter para Android** orientada al mapeo colaborativo de arte urbano.
 
-Muralito permite registrar murales mediante una fotografía, obtener su ubicación geográfica y almacenar la información en **Supabase**, para luego visualizarlos sobre un mapa **OpenStreetMap**. El mapa es público mediante un **modo espectador**; la autenticación solo es necesaria para registrar, editar o eliminar murales propios.
+Muralito permite registrar murales mediante una fotografía, obtener su ubicación geográfica y almacenar la información en **Supabase**, para luego visualizarlos sobre un mapa **OpenStreetMap**.
+
+El mapa es público mediante un **modo espectador**; la autenticación solo es necesaria para registrar, editar o eliminar murales propios.
+
 
 ---
 
 ## 📱 Características actuales
 
-* 🗺️ Mapa interactivo con OpenStreetMap y **modo espectador** (explorar sin cuenta).
-* 🔐 Autenticación con correo y contraseña (Supabase Auth), con confirmación de correo y logout sin salir del mapa.
-* 👤 **Perfil de usuario:** apodo y avatar automáticos (`perfiles` + trigger). Se ven en el `AppBar` y se pueden editar (cámara o galería) sin dejar huérfanos en Storage.
-* 🧑‍🎨 **Subido por** (A3, Prueba 013): la ficha muestra avatar y apodo de quien cargó el mural. También se ve en modo espectador. Si el registro es antiguo y no tiene `user_id`, se etiqueta **Muralista anónimo**.
-* 📷 Registro de murales: cámara → GPS → formulario → compresión → Storage → PostgreSQL, con `user_id` del usuario autenticado.
-* 🔄 Corrección EXIF + rotación manual antes de guardar.
-* ✏️ Edición de murales propios (título, descripción y foto), sin dejar archivos huérfanos si algo falla a mitad de camino.
-* 🗑️ Eliminación de murales propios con limpieza de la foto en Storage, protegida en la interfaz y con RLS.
-* 🧩 Clustering de murales a menos de 30 m, con lista de selección y zoom de contexto.
-* 🗺️ Zoom del mapa limitado (niveles 6–18) para evitar cuelgues por falta de memoria al pellizcar.
-* 💬 Mensajes de error breves y en español.
-* 🧭 “Cómo llegar” desde la ficha (OpenStreetMap).
-* 📄 Licencia MIT.
+- 🗺️ Mapa interactivo con OpenStreetMap y **modo espectador** (explorar sin cuenta).
 
-> **A4 no está implementado.** “Subido por” no es el autor de la pintura. Ver *Próximos pasos*.
+- 🔐 **Autenticación con correo y contraseña** mediante Supabase Auth, con confirmación de correo y login/logout sin abandonar el mapa.
+
+- 🔑 **Contraseña segura durante el registro**:
+  - Mínimo 8 caracteres.
+  - Una letra mayúscula.
+  - Una letra minúscula.
+  - Un número.
+  - Un carácter especial.
+  - Validación visual de requisitos en tiempo real.
+  - Indicador de **"✓ Contraseña segura"** cuando se cumplen todos los requisitos.
+  - Confirmación de contraseña validada en tiempo real.
+
+- 👤 **Perfil de usuario:** apodo y avatar automáticos (`perfiles` + trigger). Se muestran en el `AppBar` y pueden editarse mediante cámara o galería.
+
+- 🧑‍🎨 **Subido por** (A3, Prueba 013): la ficha muestra el avatar y apodo de quien cargó el mural. También se muestra en modo espectador. Si el registro es antiguo y no tiene `user_id`, se etiqueta como **Muralista anónimo**.
+
+- 📷 **Registro de murales:** cámara → GPS → formulario → compresión → Storage → PostgreSQL, utilizando el `user_id` del usuario autenticado.
+
+- 🔄 **Corrección EXIF + rotación manual** antes de guardar la fotografía.
+
+- ✏️ **Edición de murales propios** (título, descripción y foto).
+
+- 🗑️ **Eliminación de murales propios** con limpieza de la fotografía en Storage, protegida mediante interfaz y RLS.
+
+- 🧹 **Limpieza ante errores durante el registro:** si la fotografía se sube correctamente a Storage pero falla el INSERT del mural en PostgreSQL, la aplicación intenta eliminar el archivo recién subido para evitar archivos huérfanos.
+
+- 🧩 **Clustering de murales a menos de 30 m**, con lista de selección y zoom de contexto.
+
+- 🗺️ **Zoom del mapa limitado** (niveles 6–18) para reducir problemas de memoria al realizar zoom y desplazamiento.
+
+- 💬 Mensajes de error breves y en español.
+
+- 🧭 **"Cómo llegar"** desde la ficha utilizando OpenStreetMap.
+
+- 📄 Licencia MIT.
+
+> **A4 no está implementado.** "Subido por" representa la cuenta que cargó la fotografía, no necesariamente al autor de la pintura. Ver *Próximos pasos*.
+
 
 ---
 
 ## 🚧 Próximos pasos
 
-El backlog detallado está en **Mejoras priorizadas**.
+El backlog técnico y funcional detallado se mantiene en el documento **Mejoras priorizadas**.
 
-### Alta — producto (pendiente, no implementar aún)
+### 🔧 Siguiente trabajo técnico
 
-* **A4 — Autor del mural ≠ quien sube**
-  * En la ficha deben verse **dos** cosas: **Subido por** (cuenta que cargó la foto, ya existe) y **Autor del mural** (quien lo pintó / la firma).
-  * Al registrar o editar: campo opcional para el nombre o perfil del artista.
-  * Para todo el mundo: **“¿Eres el autor? Reclámalo”** (pide sesión). Así el artista puede atribuirse la obra aunque otra persona la haya fotografiado.
-  * Distinto de “publicar ocultando el apodo”: eso es otra idea, más adelante.
+- **DT2 — Actualización segura del avatar**
+  - Subir primero el nuevo avatar.
+  - Actualizar el perfil en PostgreSQL.
+  - Eliminar el avatar anterior únicamente después de confirmar que la actualización fue exitosa.
+  - Si la actualización falla, eliminar el archivo nuevo y conservar el avatar anterior.
 
-### Alta — cuentas (siguiente parche chico)
+### 🔴 Alta — producto
 
-* **M1** — Contraseña fuerte (mín. 8, mayúscula, minúscula, número y especial).
-* **M2** — Recuperar contraseña.
+- **A4 — Autor del mural ≠ quien sube**
+  - En la ficha deben verse **dos** cosas:
+    - **Subido por:** cuenta que cargó la fotografía.
+    - **Autor del mural:** persona que pintó la obra o firma del artista.
+  - Al registrar o editar: campo opcional para el nombre o perfil del artista.
+  - Para todo el mundo: **"¿Eres el autor? Reclámalo"** (requiere sesión).
+  - El artista podrá atribuirse la obra aunque otra persona haya realizado la fotografía.
+  - Es independiente de la idea de publicar ocultando el apodo.
 
-### Media
+### 🔐 Alta — cuentas
 
-* **M4** — “Cómo llegar” a Google Maps.
-* **M7** — Visor de imagen con pinch-to-zoom.
-* **A1.4** — Historial de versiones si se repinta el muro.
+- **M2 — Recuperar contraseña**
+  - Flujo de recuperación mediante correo electrónico.
+  - Restablecimiento seguro de contraseña.
 
-### Más adelante
+### 🟡 Media
 
-* Publicar logueado pero ocultando el apodo (“como anónimo”).
-* B1 — Restringir el listado público del bucket.
+- **M4 — "Cómo llegar" a Google Maps.**
+- **M5 — GPS robusto + posibilidad de ajustar manualmente la ubicación.**
+- **M6 — Botón para centrar el mapa en mi ubicación.**
+- **M7 — Visor de imagen con pinch-to-zoom.**
+- **M9 — Protección frente a contraseñas filtradas mediante HaveIBeenPwned / configuración correspondiente de Supabase.**
+- **A1.4 — Historial de versiones si se repinta el muro.**
+
+### 🚀 M16 — Sistema de actualización de versión
+
+Sistema para detectar cuando existe una versión más reciente de Muralito y avisar al usuario.
+
+Características previstas:
+
+- Detectar la versión instalada.
+- Consultar la versión más reciente disponible.
+- Mostrar una notificación o diálogo cuando exista una actualización.
+- Mostrar un resumen de novedades.
+- Permitir acceder al proceso de actualización.
+- Opción **"Ahora no"** para continuar utilizando la versión actual.
+- Las actualizaciones serán inicialmente **opcionales y no bloqueantes**.
+
+Ejemplo conceptual:
+
+> 🎉 **¡Hay una nueva versión de Muralito!**
+>
+> Hemos agregado nuevas funciones y mejoras.
+>
+> **[Actualizar] [Ahora no]**
+
+### 👁️ Mejoras futuras de autenticación
+
+- **Visibilidad de contraseña**
+  - Añadir un botón de ojo para mostrar/ocultar la contraseña.
+  - Posible pequeña animación al cambiar entre visible y oculta.
+
+- **Mejora del mensaje de confirmación de correo**
+  - Mensaje más amigable después del registro.
+  - Recordatorio para revisar **Spam / Correo no deseado**.
+
+- **Reenviar correo de confirmación**
+  - Permitir solicitar nuevamente el correo de confirmación.
+  - Considerar posteriormente límites para evitar solicitudes excesivas.
+
+### 🔵 Más adelante
+
+- Publicar estando logueado pero ocultando el apodo ("como anónimo").
+- B1 — Restringir el listado público del bucket de Storage.
+- M8 — Perfil público desde "Subido por".
+- B2 — Biografía y redes sociales.
+- B3 — Inicio de sesión con Google.
+- B4 — Direcciones dentro de la aplicación.
+- B5 — Mejoras de logo y branding.
+- B6 — Login mediante apodo o correo.
+- B7 — Límites para cambios de apodo.
+- Sistema comunitario de verificación, reportes y moderación.
+- Optimización adicional del rendimiento del mapa.
 
 ---
 
@@ -72,18 +160,29 @@ El backlog detallado está en **Mejoras priorizadas**.
 | Variables de entorno | `flutter_dotenv` | ^6.0.1 |
 | Enlaces externos | `url_launcher` | ^6.3.1 |
 
+### Dependencias principales
+
 ```yaml
 dependencies:
   flutter:
     sdk: flutter
+
   cupertino_icons: ^1.0.8
+
   supabase_flutter: ^2.17.2
+
   flutter_map: ^8.3.1
+
   latlong2: ^0.10.1
+
   geolocator: ^14.0.3
+
   image_picker: ^1.2.3
+
   flutter_image_compress: ^2.5.1
+
   flutter_dotenv: ^6.0.1
+
   url_launcher: ^6.3.1
 
 ---
@@ -134,7 +233,9 @@ flutter run
 | longitud | double precision | No |
 | user_id | uuid (references auth.users) | Sí |
 
-user_id = quien subió el mural, no necesariamente el artista (A4 pendiente).
+user_id representa a la cuenta que subió el mural, no necesariamente al artista.
+
+Esto se modificará cuando se implemente A4 — Autor del mural ≠ quien sube.
 
 **Row Level Security:**
 * `SELECT`: Público (`anon` y `authenticated`)
@@ -181,7 +282,9 @@ for each row execute procedure public.manejar_nuevo_usuario();
 * `INSERT`: Solo usuarios `authenticated`
 * `DELETE`: Solo propietario del archivo (`bucket_id = 'murales' and owner = auth.uid()`)
 
-> ⚠️ **Nota de seguridad:** El bucket actualmente permite listado público de archivos. Se recomienda restringir la política `SELECT` de `storage.objects` para evitar exponer el listado completo (pendiente: B1).
+⚠️ Nota de seguridad: el bucket actualmente permite listado público de archivos. Se recomienda restringir la política SELECT de storage.objects para evitar exponer el listado completo.
+
+Pendiente: B1 — Restringir el listado público del bucket.
 
 ---
 
@@ -226,6 +329,37 @@ muralito_app/
 ├── LICENSE
 ├── pubspec.yaml
 └── README.md
+
+---
+
+🧪 Estado de pruebas
+
+El proyecto cuenta con pruebas funcionales y técnicas realizadas durante el desarrollo.
+
+Pruebas principales
+Prueba 001 — Registro completo de mural.
+Prueba 002 — Ficha de detalle y solapamiento de pines.
+Prueba 003 — Clustering de 30 m.
+Prueba 004 — EXIF + rotación manual.
+Prueba 005 — Autenticación, confirmación de correo, user_id, RLS y Storage.
+Prueba 006 — Modo espectador.
+Prueba 007 — Edición y eliminación de murales.
+Prueba 008/009 — Fotografías y limpieza de Storage.
+Prueba 010 — Perfil de usuario.
+Prueba 011 — Refactor de estructura de lib.
+Prueba 012 — Eliminación de mural con limpieza de Storage.
+Prueba 013 — "Subido por" y casos con usuarios/murales antiguos.
+DT1-01 — Registro normal de mural.
+DT1-02 — Fallo controlado del INSERT y limpieza de Storage.
+M1-01 a M1-09 — Validación de contraseña, confirmación, registro real y login.
+M1-UX-01 a M1-UX-07 — Validaciones y comportamiento visual en tiempo real.
+Estado actual
+Elemento	Estado
+M1 — Contraseña fuerte	✅ DONE
+DT1 — Limpieza de Storage ante fallo de INSERT	✅ DONE
+M2 — Recuperación de contraseña	⏳ Pendiente
+DT2 — Actualización segura del avatar	🔜 Siguiente
+M16 — Actualización de versión	📋 Backlog
 
 ---
 

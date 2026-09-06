@@ -84,18 +84,117 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
     final user = supabase.auth.currentUser;
     if (user == null || _perfilActual == null) return;
 
-    final resultado = await showModalBottomSheet<bool>(
+    final resultado = await showModalBottomSheet<Map<String, dynamic>?>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => EditarPerfilModal(perfil: _perfilActual!),
     );
 
-    if (resultado == true) {
-      await _cargarPerfilActual();
-      if (mounted) {
+    if (resultado == null || !mounted) return;
+
+    final String apodo = resultado['apodo'] as String;
+    final String? nuevoAvatarPath = resultado['nuevoAvatarPath'] as String?;
+
+    await _guardarPerfil(apodo: apodo, nuevoAvatarPath: nuevoAvatarPath);
+  }
+
+  /// Guarda los cambios de perfil de forma segura (DT2): si se cambió el
+  /// avatar, sube el nuevo, actualiza la base de datos y solo entonces
+  /// borra el anterior. Si el UPDATE falla, borra el avatar recién subido
+  /// para no dejar huérfanos en Storage.
+  Future<void> _guardarPerfil({
+    required String apodo,
+    required String? nuevoAvatarPath,
+  }) async {
+    final Perfil perfilAnterior = _perfilActual!;
+
+    // Sin cambio de avatar: actualización simple, no toca Storage.
+    if (nuevoAvatarPath == null) {
+      try {
+        await supabase
+            .from('perfiles')
+            .update({'apodo': apodo})
+            .eq('id', perfilAnterior.id);
+
+        await _cargarPerfilActual();
+        if (!mounted) return;
         _mostrarSnackBar('✅ Perfil actualizado correctamente.');
+      } catch (e) {
+        if (!mounted) return;
+        _mostrarSnackBar('❌ ${mensajeErrorAmigable(e)}', isError: true);
       }
+      return;
+    }
+
+    // Con avatar nuevo: comprimir → subir con nombre nuevo → actualizar →
+    // solo si todo salió bien, borrar el avatar anterior.
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const DialogoCarga(
+        mensaje: 'Guardando perfil...',
+        submensaje: 'Comprimiendo y subiendo tu foto',
+      ),
+    );
+
+    String nuevaUrl;
+    try {
+      final Uint8List? bytes = await FlutterImageCompress.compressWithFile(
+        nuevoAvatarPath,
+        minWidth: 400,
+        minHeight: 400,
+        quality: 80,
+        autoCorrectionAngle: true,
+      );
+
+      if (bytes == null) throw Exception('No se pudo procesar la imagen');
+
+      final String nombreArchivo =
+          'avatar_${perfilAnterior.id}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+
+      await supabase.storage
+          .from('murales')
+          .uploadBinary(
+            nombreArchivo,
+            bytes,
+            fileOptions: const FileOptions(contentType: 'image/jpeg'),
+          );
+
+      nuevaUrl = supabase.storage.from('murales').getPublicUrl(nombreArchivo);
+    } catch (e) {
+      // Falló la compresión o la subida: no se toca la base de datos,
+      // el perfil conserva su avatar original.
+      if (!mounted) return;
+      Navigator.of(context).pop(); // Cierra DialogoCarga
+      _mostrarSnackBar('❌ ${mensajeErrorAmigable(e)}', isError: true);
+      return;
+    }
+
+    try {
+      await supabase
+          .from('perfiles')
+          .update({'apodo': apodo, 'avatar_url': nuevaUrl})
+          .eq('id', perfilAnterior.id);
+
+      // Éxito: borrar el avatar anterior (best-effort).
+      if (perfilAnterior.avatarUrl != null &&
+          perfilAnterior.avatarUrl!.isNotEmpty) {
+        await borrarFotoDeStorage(perfilAnterior.avatarUrl!);
+      }
+
+      await _cargarPerfilActual();
+      if (!mounted) return;
+      Navigator.of(context).pop(); // Cierra DialogoCarga
+      _mostrarSnackBar('✅ Perfil actualizado correctamente.');
+    } catch (e) {
+      // El UPDATE falló después de subir el avatar nuevo: borra la foto
+      // recién subida para no dejar un huérfano; el perfil conserva su
+      // avatar original.
+      await borrarFotoDeStorage(nuevaUrl);
+      if (!mounted) return;
+      Navigator.of(context).pop(); // Cierra DialogoCarga
+      _mostrarSnackBar('❌ ${mensajeErrorAmigable(e)}', isError: true);
     }
   }
 
