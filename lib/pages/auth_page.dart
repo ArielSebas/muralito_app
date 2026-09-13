@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/supabase_client.dart';
 import '../utils/helpers.dart';
+import 'recuperar_password_page.dart';
 
 class AuthPage extends StatefulWidget {
   final bool empezarEnRegistro;
@@ -440,6 +441,19 @@ class _AuthPageState extends State<AuthPage> {
                 ),
 
                 const SizedBox(height: 20),
+                if (!_esRegistro)
+                  TextButton(
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => RecuperarPasswordPage(
+                            emailInicial: _emailController.text.trim(),
+                          ),
+                        ),
+                      );
+                    },
+                    child: const Text('¿Olvidaste tu contraseña?'),
+                  ),
                 TextButton(
                   onPressed: () => setState(() => _esRegistro = !_esRegistro),
                   child: Text(
