@@ -16,6 +16,11 @@ import '../utils/helpers.dart';
 /// Requiere que la plantilla de correo "Reset Password" en el dashboard
 /// de Supabase incluya {{ .Token }} para que el correo muestre el código
 /// (la cantidad de dígitos la define Supabase, no hardcodeamos un número).
+///
+/// Nota (DT4): la traducción de errores de Auth vive en helpers.dart
+/// ([traducirErrorAuth]). Esta página solo la consume y conserva la
+/// lógica de sincronización del cooldown con los segundos que reporta
+/// el servidor.
 class RecuperarPasswordPage extends StatefulWidget {
   final String? emailInicial;
 
@@ -76,38 +81,6 @@ class _RecuperarPasswordPageState extends State<RecuperarPasswordPage> {
     });
   }
 
-  /// Traduce los mensajes de error de Supabase Auth más comunes al
-  /// español. Si el mensaje indica un límite de espera ("solo puedes
-  /// pedir esto después de N segundos"), también devuelve esos N
-  /// segundos para poder sincronizar el cooldown visual con el valor
-  /// real del servidor, en vez de dejar el botón habilitado para un
-  /// reintento que el servidor va a rechazar igual.
-  ({String mensaje, int? segundosDeEspera}) _traducirErrorAuth(
-    String original,
-  ) {
-    final texto = original.toLowerCase();
-
-    final coincidenciaEspera = RegExp(r'after (\d+) seconds?')
-        .firstMatch(texto);
-    if (coincidenciaEspera != null) {
-      final segundos = int.tryParse(coincidenciaEspera.group(1)!) ?? 60;
-      return (
-        mensaje:
-            'Por seguridad, espera $segundos segundos antes de pedir otro código.',
-        segundosDeEspera: segundos,
-      );
-    }
-
-    if (texto.contains('expired') || texto.contains('invalid')) {
-      return (
-        mensaje: 'El código es incorrecto o ya expiró. Solicita uno nuevo.',
-        segundosDeEspera: null,
-      );
-    }
-
-    return (mensaje: original, segundosDeEspera: null);
-  }
-
   bool get _tieneLongitudMinima => _passController.text.length >= 8;
   bool get _tieneMayuscula => RegExp(r'[A-Z]').hasMatch(_passController.text);
   bool get _tieneMinuscula => RegExp(r'[a-z]').hasMatch(_passController.text);
@@ -144,18 +117,6 @@ class _RecuperarPasswordPageState extends State<RecuperarPasswordPage> {
     super.dispose();
   }
 
-  void _mostrarSnackBar(String mensaje, {bool isError = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(mensaje),
-        backgroundColor: isError ? Colors.red[700] : Colors.green[700],
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),
-      ),
-    );
-  }
-
   Future<void> _enviarCodigo({bool validarCorreo = true}) async {
     if (validarCorreo && !_formKeyCorreo.currentState!.validate()) return;
 
@@ -170,20 +131,24 @@ class _RecuperarPasswordPageState extends State<RecuperarPasswordPage> {
 
       _iniciarCooldownReenvio();
 
-      _mostrarSnackBar('📧 Te enviamos un código a tu correo.');
+      mostrarSnackBar(context, '📧 Te enviamos un código a tu correo.');
     } on AuthException catch (e) {
-      final traduccion = _traducirErrorAuth(e.message);
+      final traduccion = traducirErrorAuth(e);
 
       if (traduccion.segundosDeEspera != null) {
         _iniciarCooldownReenvio(segundos: traduccion.segundosDeEspera!);
       }
 
       if (mounted) {
-        _mostrarSnackBar('❌ ${traduccion.mensaje}', isError: true);
+        mostrarSnackBar(context, '❌ ${traduccion.mensaje}', isError: true);
       }
     } catch (e) {
       if (mounted) {
-        _mostrarSnackBar('❌ ${mensajeErrorAmigable(e)}', isError: true);
+        mostrarSnackBar(
+          context,
+          '❌ ${mensajeErrorAmigable(e)}',
+          isError: true,
+        );
       }
     } finally {
       if (mounted) {
@@ -196,12 +161,20 @@ class _RecuperarPasswordPageState extends State<RecuperarPasswordPage> {
     if (!_formKeyCodigo.currentState!.validate()) return;
 
     if (!_contrasenaEsSegura) {
-      _mostrarSnackBar('❌ Revisa los requisitos de contraseña.', isError: true);
+      mostrarSnackBar(
+        context,
+        '❌ Revisa los requisitos de contraseña.',
+        isError: true,
+      );
       return;
     }
 
     if (!_contrasenasCoinciden) {
-      _mostrarSnackBar('❌ Las contraseñas no coinciden.', isError: true);
+      mostrarSnackBar(
+        context,
+        '❌ Las contraseñas no coinciden.',
+        isError: true,
+      );
       return;
     }
 
@@ -218,18 +191,23 @@ class _RecuperarPasswordPageState extends State<RecuperarPasswordPage> {
       );
 
       if (!mounted) return;
-      _mostrarSnackBar('✅ Contraseña actualizada correctamente.');
+      mostrarSnackBar(context, '✅ Contraseña actualizada correctamente.');
       Navigator.of(context).popUntil((route) => route.isFirst);
     } on AuthException catch (e) {
       if (mounted) {
-        _mostrarSnackBar(
-          '❌ ${_traducirErrorAuth(e.message).mensaje}',
+        mostrarSnackBar(
+          context,
+          '❌ ${traducirErrorAuth(e).mensaje}',
           isError: true,
         );
       }
     } catch (e) {
       if (mounted) {
-        _mostrarSnackBar('❌ ${mensajeErrorAmigable(e)}', isError: true);
+        mostrarSnackBar(
+          context,
+          '❌ ${mensajeErrorAmigable(e)}',
+          isError: true,
+        );
       }
     } finally {
       if (mounted) setState(() => _cargando = false);

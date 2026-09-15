@@ -26,7 +26,7 @@ El mapa es público mediante un **modo espectador**; la autenticación solo es n
 
 - 🔁 **Recuperación de contraseña mediante código OTP** (M2): se solicita por correo, se ingresa junto con la nueva contraseña (misma política de seguridad que en el registro), con reenvío controlado por un cooldown de 60 segundos.
 
-- 👤 **Perfil de usuario:** apodo y avatar automáticos (`perfiles` + trigger). Se muestran en el `AppBar` y pueden editarse mediante cámara o galería, con actualización segura del avatar (DT2): el avatar anterior solo se elimina después de confirmar que el nuevo quedó registrado correctamente.
+- 👤 Perfil de usuario: apodo y avatar automáticos (perfiles + trigger). RLS auditada y validada (DT3): lectura pública para modo espectador y autoría, modificación restringida al dueño, eliminación bloqueada desde cliente e integridad referencial ON DELETE CASCADE vinculada a auth.users.
 
 - 🧑‍🎨 **Subido por** (A3, Prueba 013): la ficha muestra el avatar y apodo de quien cargó el mural. También se muestra en modo espectador. Si el registro es antiguo y no tiene `user_id`, se etiqueta como **Muralista anónimo**.
 
@@ -378,8 +378,9 @@ El proyecto cuenta con pruebas funcionales y técnicas realizadas durante el des
 | DT1 — Limpieza de Storage ante fallo de INSERT | ✅ DONE |
 | DT2 — Actualización segura del avatar | ✅ DONE |
 | M2 — Recuperación de contraseña | ✅ DONE |
-| DT3 — Auditoría RLS de perfiles | 🔜 Siguiente |
-| M9 — Protección de contraseñas filtradas | ⏳ Pendiente |
+| DT3 — Auditoría RLS de perfiles | ✅ DONE |
+| M9 — Protección de contraseñas filtradas | ⛔ Bloqueado (Requiere Plan Pro)
+| DT4 — Unificación de errores y loading | 🔜 Siguiente 
 | M16 — Actualización de versión | 📋 Backlog |
 
 ---

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/supabase_client.dart';
 import '../utils/helpers.dart';
@@ -115,13 +114,30 @@ class _AuthPageState extends State<AuthPage> {
     if (!_formKey.currentState!.validate()) return;
 
     if (_esRegistro) {
+      if (_validarContrasenaRegistro(_passController.text) != null) {
+        mostrarSnackBar(
+          context,
+          '❌ Revisa los requisitos de contraseña.',
+          isError: true,
+        );
+        return;
+      }
+
       if (_confirmPassController.text.isEmpty) {
-        _mostrarSnackBar('❌ Confirma tu contraseña.', isError: true);
+        mostrarSnackBar(
+          context,
+          '❌ Confirma tu contraseña.',
+          isError: true,
+        );
         return;
       }
 
       if (!_contrasenasCoinciden) {
-        _mostrarSnackBar('❌ Las contraseñas no coinciden.', isError: true);
+        mostrarSnackBar(
+          context,
+          '❌ Las contraseñas no coinciden.',
+          isError: true,
+        );
         return;
       }
     }
@@ -135,7 +151,8 @@ class _AuthPageState extends State<AuthPage> {
           password: _passController.text.trim(),
         );
         if (mounted) {
-          _mostrarSnackBar(
+          mostrarSnackBar(
+            context,
             '📧 Revisa tu correo para confirmar la cuenta. '
             'Luego inicia sesión.',
           );
@@ -150,27 +167,19 @@ class _AuthPageState extends State<AuthPage> {
           Navigator.of(context).pop(true);
         }
       }
-    } on AuthException catch (e) {
-      if (mounted) _mostrarSnackBar('❌ ${e.message}', isError: true);
     } catch (e) {
+      // Los AuthException se traducen a español dentro de
+      // mensajeErrorAmigable (DT4): ningún mensaje crudo llega a la UI.
       if (mounted) {
-        _mostrarSnackBar('❌ ${mensajeErrorAmigable(e)}', isError: true);
+        mostrarSnackBar(
+          context,
+          '❌ ${mensajeErrorAmigable(e)}',
+          isError: true,
+        );
       }
     } finally {
       if (mounted) setState(() => _cargando = false);
     }
-  }
-
-  void _mostrarSnackBar(String mensaje, {bool isError = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(mensaje),
-        backgroundColor: isError ? Colors.red[700] : Colors.green[700],
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),
-      ),
-    );
   }
 
   Widget _requisitosContrasena() {
@@ -297,6 +306,13 @@ class _AuthPageState extends State<AuthPage> {
                       TextFormField(
                         controller: _passController,
                         obscureText: true,
+                        // DT4-01: no AutovalidateMode.onUserInteraction.
+                        // Ese modo deja el campo en error (borde rojo +
+                        // "Revisa los requisitos") en cuanto hay texto
+                        // débil o el campo queda vacío. La validación en
+                        // vivo vive en [_requisitosContrasena]; el campo
+                        // no se pinta de error mientras se escribe.
+                        autovalidateMode: AutovalidateMode.disabled,
                         decoration: InputDecoration(
                           labelText: 'Contraseña',
                           prefixIcon: const Icon(Icons.lock_outline),
@@ -306,20 +322,7 @@ class _AuthPageState extends State<AuthPage> {
                           filled: true,
                           fillColor: Colors.grey[50],
                         ),
-                        validator: (v) {
-                          if (_esRegistro) {
-                            if (_validarContrasenaRegistro(v) != null) {
-                              return 'Revisa los requisitos de contraseña';
-                            }
-                            return null;
-                          }
-
-                          if (v == null || v.isEmpty) {
-                            return 'Ingresa tu contraseña';
-                          }
-
-                          return null;
-                        },
+                        validator: (_) => null,
                       ),
 
                       if (_esRegistro && _passController.text.isNotEmpty)

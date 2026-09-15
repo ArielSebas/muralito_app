@@ -14,7 +14,6 @@ import '../services/supabase_client.dart';
 import '../models/mural.dart';
 import '../models/perfil.dart';
 import '../utils/helpers.dart';
-import '../widgets/dialogo_carga.dart';
 import '../widgets/formulario_mural_modal.dart';
 import '../widgets/editar_mural_modal.dart';
 import '../widgets/editar_perfil_modal.dart';
@@ -102,7 +101,9 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
   /// Guarda los cambios de perfil de forma segura (DT2): si se cambió el
   /// avatar, sube el nuevo, actualiza la base de datos y solo entonces
   /// borra el anterior. Si el UPDATE falla, borra el avatar recién subido
-  /// para no dejar huérfanos en Storage.
+  /// para no dejar huérfanos en Storage. El diálogo de carga se cierra
+  /// exactamente una vez (DT13, vía conDialogoCarga), incluso si el
+  /// widget se desmonta a mitad del proceso.
   Future<void> _guardarPerfil({
     required String apodo,
     required String? nuevoAvatarPath,
@@ -119,82 +120,74 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
 
         await _cargarPerfilActual();
         if (!mounted) return;
-        _mostrarSnackBar('✅ Perfil actualizado correctamente.');
+        mostrarSnackBar(context, '✅ Perfil actualizado correctamente.');
       } catch (e) {
         if (!mounted) return;
-        _mostrarSnackBar('❌ ${mensajeErrorAmigable(e)}', isError: true);
+        mostrarSnackBar(context, '❌ ${mensajeErrorAmigable(e)}', isError: true);
       }
       return;
     }
 
     // Con avatar nuevo: comprimir → subir con nombre nuevo → actualizar →
     // solo si todo salió bien, borrar el avatar anterior.
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => const DialogoCarga(
+    try {
+      await conDialogoCarga(
+        context,
         mensaje: 'Guardando perfil...',
         submensaje: 'Comprimiendo y subiendo tu foto',
-      ),
-    );
-
-    String nuevaUrl;
-    try {
-      final Uint8List? bytes = await FlutterImageCompress.compressWithFile(
-        nuevoAvatarPath,
-        minWidth: 400,
-        minHeight: 400,
-        quality: 80,
-        autoCorrectionAngle: true,
-      );
-
-      if (bytes == null) throw Exception('No se pudo procesar la imagen');
-
-      final String nombreArchivo =
-          'avatar_${perfilAnterior.id}_${DateTime.now().millisecondsSinceEpoch}.jpg';
-
-      await supabase.storage
-          .from('murales')
-          .uploadBinary(
-            nombreArchivo,
-            bytes,
-            fileOptions: const FileOptions(contentType: 'image/jpeg'),
+        trabajo: () async {
+          final Uint8List? bytes = await FlutterImageCompress.compressWithFile(
+            nuevoAvatarPath,
+            minWidth: 400,
+            minHeight: 400,
+            quality: 80,
+            autoCorrectionAngle: true,
           );
 
-      nuevaUrl = supabase.storage.from('murales').getPublicUrl(nombreArchivo);
-    } catch (e) {
-      // Falló la compresión o la subida: no se toca la base de datos,
-      // el perfil conserva su avatar original.
-      if (!mounted) return;
-      Navigator.of(context).pop(); // Cierra DialogoCarga
-      _mostrarSnackBar('❌ ${mensajeErrorAmigable(e)}', isError: true);
-      return;
-    }
+          if (bytes == null) throw Exception('No se pudo procesar la imagen');
 
-    try {
-      await supabase
-          .from('perfiles')
-          .update({'apodo': apodo, 'avatar_url': nuevaUrl})
-          .eq('id', perfilAnterior.id);
+          final String nombreArchivo =
+              'avatar_${perfilAnterior.id}_${DateTime.now().millisecondsSinceEpoch}.jpg';
 
-      // Éxito: borrar el avatar anterior (best-effort).
-      if (perfilAnterior.avatarUrl != null &&
-          perfilAnterior.avatarUrl!.isNotEmpty) {
-        await borrarFotoDeStorage(perfilAnterior.avatarUrl!);
-      }
+          await supabase.storage
+              .from('murales')
+              .uploadBinary(
+                nombreArchivo,
+                bytes,
+                fileOptions: const FileOptions(contentType: 'image/jpeg'),
+              );
+
+          final nuevaUrl = supabase.storage
+              .from('murales')
+              .getPublicUrl(nombreArchivo);
+
+          try {
+            await supabase
+                .from('perfiles')
+                .update({'apodo': apodo, 'avatar_url': nuevaUrl})
+                .eq('id', perfilAnterior.id);
+          } catch (e) {
+            // El UPDATE falló después de subir el avatar nuevo: borra la
+            // foto recién subida para no dejar un huérfano; el perfil
+            // conserva su avatar original.
+            await borrarFotoDeStorage(nuevaUrl);
+            rethrow;
+          }
+
+          // Éxito: borrar el avatar anterior (best-effort).
+          if (perfilAnterior.avatarUrl != null &&
+              perfilAnterior.avatarUrl!.isNotEmpty) {
+            await borrarFotoDeStorage(perfilAnterior.avatarUrl!);
+          }
+        },
+      );
 
       await _cargarPerfilActual();
       if (!mounted) return;
-      Navigator.of(context).pop(); // Cierra DialogoCarga
-      _mostrarSnackBar('✅ Perfil actualizado correctamente.');
+      mostrarSnackBar(context, '✅ Perfil actualizado correctamente.');
     } catch (e) {
-      // El UPDATE falló después de subir el avatar nuevo: borra la foto
-      // recién subida para no dejar un huérfano; el perfil conserva su
-      // avatar original.
-      await borrarFotoDeStorage(nuevaUrl);
       if (!mounted) return;
-      Navigator.of(context).pop(); // Cierra DialogoCarga
-      _mostrarSnackBar('❌ ${mensajeErrorAmigable(e)}', isError: true);
+      mostrarSnackBar(context, '❌ ${mensajeErrorAmigable(e)}', isError: true);
     }
   }
 
@@ -492,7 +485,8 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
     // Protección adicional en la interfaz.
     // La seguridad real sigue estando en RLS.
     if (usuarioActual == null || mural.userId != usuarioActual.id) {
-      _mostrarSnackBar(
+      mostrarSnackBar(
+        context,
         'No tienes permiso para editar este mural.',
         isError: true,
       );
@@ -529,95 +523,90 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
 
         await _cargarMurales();
         if (!mounted) return;
-        _mostrarSnackBar('✅ Mural "$titulo" actualizado correctamente.');
-      } on PostgrestException catch (e) {
-        if (!mounted) return;
-        _mostrarSnackBar('❌ ${mensajeErrorAmigable(e)}', isError: true);
+        mostrarSnackBar(
+          context,
+          '✅ Mural "$titulo" actualizado correctamente.',
+        );
       } catch (e) {
         if (!mounted) return;
-        _mostrarSnackBar('❌ ${mensajeErrorAmigable(e)}', isError: true);
+        mostrarSnackBar(context, '❌ ${mensajeErrorAmigable(e)}', isError: true);
       }
       return;
     }
 
     // ── Caso con foto nueva: comprimir → subir con nombre nuevo →
-    // actualizar → solo si todo salió bien, borrar la foto anterior ──
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => const DialogoCarga(
+    // actualizar → solo si todo salió bien, borrar la foto anterior.
+    // El diálogo de carga se cierra exactamente una vez (DT13, vía
+    // conDialogoCarga), incluso si el widget se desmonta a mitad. ──
+    try {
+      await conDialogoCarga(
+        context,
         mensaje: 'Guardando cambios...',
         submensaje: 'Comprimiendo y subiendo la nueva foto',
-      ),
-    );
+        trabajo: () async {
+          final Uint8List? imagenComprimida =
+              await FlutterImageCompress.compressWithFile(
+                nuevaFotoPath,
+                minWidth: 1200,
+                minHeight: 1200,
+                quality: 80,
+                rotate: rotacion,
+                autoCorrectionAngle: true,
+              );
 
-    String nuevaFotoUrl;
-    try {
-      final Uint8List? imagenComprimida =
-          await FlutterImageCompress.compressWithFile(
-            nuevaFotoPath,
-            minWidth: 1200,
-            minHeight: 1200,
-            quality: 80,
-            rotate: rotacion,
-            autoCorrectionAngle: true,
-          );
+          if (imagenComprimida == null) {
+            throw Exception('No se pudo comprimir la imagen');
+          }
 
-      if (imagenComprimida == null) {
-        throw Exception('No se pudo comprimir la imagen');
-      }
+          final String nombreArchivo =
+              '${DateTime.now().millisecondsSinceEpoch}_${titulo.replaceAll(' ', '_')}.jpg';
 
-      final String nombreArchivo =
-          '${DateTime.now().millisecondsSinceEpoch}_${titulo.replaceAll(' ', '_')}.jpg';
+          await supabase.storage
+              .from('murales')
+              .uploadBinary(
+                nombreArchivo,
+                imagenComprimida,
+                fileOptions: const FileOptions(contentType: 'image/jpeg'),
+              );
 
-      await supabase.storage
-          .from('murales')
-          .uploadBinary(
-            nombreArchivo,
-            imagenComprimida,
-            fileOptions: const FileOptions(contentType: 'image/jpeg'),
-          );
+          final nuevaFotoUrl = supabase.storage
+              .from('murales')
+              .getPublicUrl(nombreArchivo);
 
-      nuevaFotoUrl = supabase.storage
-          .from('murales')
-          .getPublicUrl(nombreArchivo);
-    } catch (e) {
-      // Falló la compresión o la subida: no se toca la base de datos,
-      // el mural conserva su foto original.
-      if (!mounted) return;
-      Navigator.of(context).pop(); // Cierra DialogoCarga
-      _mostrarSnackBar('❌ ${mensajeErrorAmigable(e)}', isError: true);
-      return;
-    }
+          try {
+            await supabase
+                .from('murales')
+                .update({
+                  'titulo': titulo,
+                  'descripcion': descripcion.isEmpty ? null : descripcion,
+                  'foto_url': nuevaFotoUrl,
+                })
+                .eq('id', mural.id!)
+                .eq('user_id', usuarioActual.id);
+          } catch (e) {
+            // El UPDATE falló después de subir la foto nueva: borra la
+            // foto recién subida para no dejar un huérfano; el mural
+            // conserva su foto original.
+            await borrarFotoDeStorage(nuevaFotoUrl);
+            rethrow;
+          }
 
-    try {
-      await supabase
-          .from('murales')
-          .update({
-            'titulo': titulo,
-            'descripcion': descripcion.isEmpty ? null : descripcion,
-            'foto_url': nuevaFotoUrl,
-          })
-          .eq('id', mural.id!)
-          .eq('user_id', usuarioActual.id);
-
-      // Éxito: borrar la foto anterior (best-effort).
-      if (mural.fotoUrl != null && mural.fotoUrl!.isNotEmpty) {
-        await borrarFotoDeStorage(mural.fotoUrl!);
-      }
+          // Éxito: borrar la foto anterior (best-effort).
+          if (mural.fotoUrl != null && mural.fotoUrl!.isNotEmpty) {
+            await borrarFotoDeStorage(mural.fotoUrl!);
+          }
+        },
+      );
 
       await _cargarMurales();
       if (!mounted) return;
-      Navigator.of(context).pop(); // Cierra DialogoCarga
-      _mostrarSnackBar('✅ Mural "$titulo" actualizado correctamente.');
+      mostrarSnackBar(
+        context,
+        '✅ Mural "$titulo" actualizado correctamente.',
+      );
     } catch (e) {
-      // El UPDATE falló después de subir la foto nueva: borra la foto
-      // recién subida para no dejar un huérfano; el mural conserva su
-      // foto original.
-      await borrarFotoDeStorage(nuevaFotoUrl);
       if (!mounted) return;
-      Navigator.of(context).pop(); // Cierra DialogoCarga
-      _mostrarSnackBar('❌ ${mensajeErrorAmigable(e)}', isError: true);
+      mostrarSnackBar(context, '❌ ${mensajeErrorAmigable(e)}', isError: true);
     }
   }
 
@@ -627,7 +616,8 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
     // Protección adicional en la interfaz.
     // La seguridad real sigue estando en RLS.
     if (usuarioActual == null || mural.userId != usuarioActual.id) {
-      _mostrarSnackBar(
+      mostrarSnackBar(
+        context,
         'No tienes permiso para eliminar este mural.',
         isError: true,
       );
@@ -683,18 +673,23 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
 
       if (!mounted) return;
 
-      _mostrarSnackBar('✅ Mural "${mural.titulo}" eliminado correctamente.');
-    } on PostgrestException catch (e) {
+      mostrarSnackBar(
+        context,
+        '✅ Mural "${mural.titulo}" eliminado correctamente.',
+      );
+    } on PostgrestException catch (_) {
+      // DT4: el detalle técnico queda en consola (mensajeErrorAmigable
+      // también lo imprime); al usuario se le muestra solo un mensaje
+      // amigable en español.
       if (!mounted) return;
-
-      _mostrarSnackBar(
-        '❌ No se pudo eliminar el mural: ${e.message}',
+      mostrarSnackBar(
+        context,
+        '❌ No se pudo eliminar el mural. Inténtalo de nuevo.',
         isError: true,
       );
     } catch (e) {
       if (!mounted) return;
-
-      _mostrarSnackBar('❌ ${mensajeErrorAmigable(e)}', isError: true);
+      mostrarSnackBar(context, '❌ ${mensajeErrorAmigable(e)}', isError: true);
     }
   }
 
@@ -745,7 +740,6 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
     );
   }
 
-  /// Muestra un diálogo con los detalles del mural seleccionado
   /// Ficha de detalle del mural (bottom sheet).
   /// Siempre muestra título, descripción y coordenadas aunque la foto falle.
   Future<void> _mostrarDetalleMural(Mural mural) async {
@@ -1006,18 +1000,26 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
   }
 
   Future<void> _abrirComoLlegar(double lat, double lng) async {
-    final uri = Uri.parse(
-      'https://www.openstreetmap.org/?mlat=$lat&mlon=$lng#map=18/$lat/$lng',
+  final uri = Uri.parse(
+    'https://www.openstreetmap.org/?mlat=$lat&mlon=$lng#map=18/$lat/$lng',
+  );
+
+  final ok = await launchUrl(
+    uri,
+    mode: LaunchMode.externalApplication,
+  );
+
+  if (!mounted) return;
+
+  if (!ok) {
+    mostrarSnackBar(
+      context,
+      'No se pudo abrir el mapa. Coordenadas: '
+      '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}',
+      isError: true,
     );
-    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
-    if (!ok && mounted) {
-      _mostrarSnackBar(
-        'No se pudo abrir el mapa. Coordenadas: '
-        '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}',
-        isError: true,
-      );
-    }
   }
+}
 
   /// Flujo completo: cámara → GPS → formulario → subida → refresh
   Future<void> _iniciarFlujoNuevoMural() async {
@@ -1049,9 +1051,13 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
         ),
       );
     } catch (e) {
+      // DT4: el detalle técnico va solo a la consola; el usuario ve un
+      // mensaje amigable sin contenido técnico.
+      debugPrint('⚠️ Error al obtener la ubicación GPS: $e');
       if (!mounted) return;
-      _mostrarSnackBar(
-        '⚠️ No se pudo obtener la ubicación GPS: $e',
+      mostrarSnackBar(
+        context,
+        '⚠️ No se pudo obtener tu ubicación GPS. Inténtalo de nuevo.',
         isError: true,
       );
       return;
@@ -1130,38 +1136,59 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
   }
 
   /// Verifica y solicita permisos de ubicación en tiempo de ejecución
-  Future<bool> _verificarPermisosUbicacion() async {
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      _mostrarSnackBar(
-        'Por favor activa el GPS del dispositivo.',
-        isError: true,
-      );
-      return false;
-    }
+Future<bool> _verificarPermisosUbicacion() async {
+  final bool serviceEnabled =
+      await Geolocator.isLocationServiceEnabled();
 
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        _mostrarSnackBar('Permiso de ubicación denegado.', isError: true);
-        return false;
-      }
-    }
+  if (!mounted) return false;
 
-    if (permission == LocationPermission.deniedForever) {
-      _mostrarSnackBar(
-        'Permiso de ubicación denegado permanentemente. '
-        'Actívalo en Configuración del dispositivo.',
-        isError: true,
-      );
-      return false;
-    }
-
-    return true;
+  if (!serviceEnabled) {
+    mostrarSnackBar(
+      context,
+      'Por favor activa el GPS del dispositivo.',
+      isError: true,
+    );
+    return false;
   }
 
-  /// Comprime la imagen, la sube a Storage y guarda el registro en PostgreSQL
+  LocationPermission permission =
+      await Geolocator.checkPermission();
+
+  if (!mounted) return false;
+
+  if (permission == LocationPermission.denied) {
+    permission = await Geolocator.requestPermission();
+
+    if (!mounted) return false;
+
+    if (permission == LocationPermission.denied) {
+      mostrarSnackBar(
+        context,
+        'Permiso de ubicación denegado.',
+        isError: true,
+      );
+      return false;
+    }
+  }
+
+  if (permission == LocationPermission.deniedForever) {
+    mostrarSnackBar(
+      context,
+      'Permiso de ubicación denegado permanentemente. '
+      'Actívalo en Configuración del dispositivo.',
+      isError: true,
+    );
+    return false;
+  }
+
+  return true;
+}
+
+  /// Comprime la imagen, la sube a Storage y guarda el registro en
+  /// PostgreSQL. El diálogo de carga se cierra exactamente una vez
+  /// (DT13, vía conDialogoCarga), incluso si el widget se desmonta a
+  /// mitad del proceso. La limpieza de Storage ante fallo del INSERT
+  /// (DT1) se mantiene intacta.
   Future<void> _subirMural({
     required String titulo,
     required String? descripcion,
@@ -1174,170 +1201,109 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
 
     if (usuario == null) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Debes iniciar sesión para subir un mural.'),
-          ),
+        mostrarSnackBar(
+          context,
+          'Debes iniciar sesión para subir un mural.',
+          isError: true,
         );
       }
       return;
     }
 
-    bool dialogoAbierto = false;
-    String? nombreArchivoSubido;
-
     try {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => const DialogoCarga(
-          mensaje: 'Guardando mural...',
-          submensaje: 'Preparando la fotografía',
-        ),
-      );
-
-      dialogoAbierto = true;
-
-      // ------------------------------------------------------------
-      // 1. Comprimir y corregir orientación de la imagen
-      // ------------------------------------------------------------
-      final bytes = await FlutterImageCompress.compressWithFile(
-        imagePath,
-        minWidth: 1200,
-        minHeight: 1200,
-        quality: 80,
-        format: CompressFormat.jpeg,
-        rotate: rotacion,
-        autoCorrectionAngle: true,
-      );
-
-      if (bytes == null || bytes.isEmpty) {
-        throw Exception('No se pudo procesar la fotografía.');
-      }
-
-      // ------------------------------------------------------------
-      // 2. Generar nombre único para Storage
-      // ------------------------------------------------------------
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
-
-      final tituloLimpio = titulo.trim().replaceAll(
-        RegExp(r'[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ_-]'),
-        '_',
-      );
-
-      nombreArchivoSubido = '${timestamp}_$tituloLimpio.jpg';
-
-      // ------------------------------------------------------------
-      // 3. Subir fotografía a Storage
-      // ------------------------------------------------------------
-      await supabase.storage
-          .from('murales')
-          .uploadBinary(
-            nombreArchivoSubido,
-            Uint8List.fromList(bytes),
-            fileOptions: const FileOptions(
-              contentType: 'image/jpeg',
-              upsert: false,
-            ),
+      await conDialogoCarga(
+        context,
+        mensaje: 'Guardando mural...',
+        submensaje: 'Preparando la fotografía',
+        trabajo: () async {
+          // 1. Comprimir y corregir orientación de la imagen
+          final bytes = await FlutterImageCompress.compressWithFile(
+            imagePath,
+            minWidth: 1200,
+            minHeight: 1200,
+            quality: 80,
+            format: CompressFormat.jpeg,
+            rotate: rotacion,
+            autoCorrectionAngle: true,
           );
 
-      // ------------------------------------------------------------
-      // 4. Obtener URL pública
-      // ------------------------------------------------------------
-      final fotoUrl = supabase.storage
-          .from('murales')
-          .getPublicUrl(nombreArchivoSubido);
+          if (bytes == null || bytes.isEmpty) {
+            throw Exception('No se pudo procesar la fotografía.');
+          }
 
-      // ------------------------------------------------------------
-      // 5. Insertar mural en PostgreSQL
-      // ------------------------------------------------------------
-      final mural = Mural(
-        titulo: titulo.trim(),
-        descripcion: descripcion?.trim().isEmpty == true
-            ? null
-            : descripcion?.trim(),
-        fotoUrl: fotoUrl,
-        latitud: latitud,
-        longitud: longitud,
-        userId: usuario.id,
-      );
+          // 2. Generar nombre único para Storage
+          final timestamp = DateTime.now().millisecondsSinceEpoch;
 
-      try {
-        await supabase.from('murales').insert(mural.toMap());
-      } catch (error) {
-        // ----------------------------------------------------------
-        // 5.1 PostgreSQL falló después de subir Storage.
-        //
-        // Intentamos eliminar únicamente el archivo que acabamos
-        // de subir para evitar dejar un archivo huérfano.
-        // ----------------------------------------------------------
-        try {
-          await supabase.storage.from('murales').remove([nombreArchivoSubido]);
-        } catch (cleanupError) {
-          debugPrint(
-            'No se pudo eliminar el archivo después del fallo '
-            'del INSERT: $cleanupError',
+          final tituloLimpio = titulo.trim().replaceAll(
+            RegExp(r'[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ_-]'),
+            '_',
           );
-        }
 
-        rethrow;
-      }
+          final nombreArchivo = '${timestamp}_$tituloLimpio.jpg';
 
-      // ------------------------------------------------------------
-      // 6. Cerrar diálogo de carga
-      // ------------------------------------------------------------
-      if (dialogoAbierto && mounted) {
-        Navigator.of(context).pop();
-        dialogoAbierto = false;
-      }
+          // 3. Subir fotografía a Storage
+          await supabase.storage
+              .from('murales')
+              .uploadBinary(
+                nombreArchivo,
+                Uint8List.fromList(bytes),
+                fileOptions: const FileOptions(
+                  contentType: 'image/jpeg',
+                  upsert: false,
+                ),
+              );
 
-      if (!mounted) return;
+          // 4. Obtener URL pública
+          final fotoUrl = supabase.storage
+              .from('murales')
+              .getPublicUrl(nombreArchivo);
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Mural guardado correctamente.')),
+          // 5. Insertar mural en PostgreSQL (DT1: si falla el INSERT,
+          // eliminar únicamente el archivo recién subido para evitar
+          // dejar un archivo huérfano).
+          try {
+            final mural = Mural(
+              titulo: titulo.trim(),
+              descripcion: descripcion?.trim().isEmpty == true
+                  ? null
+                  : descripcion?.trim(),
+              fotoUrl: fotoUrl,
+              latitud: latitud,
+              longitud: longitud,
+              userId: usuario.id,
+            );
+
+            await supabase.from('murales').insert(mural.toMap());
+          } catch (error) {
+            try {
+              await supabase.storage.from('murales').remove([nombreArchivo]);
+            } catch (cleanupError) {
+              debugPrint(
+                'No se pudo eliminar el archivo después del fallo '
+                'del INSERT: $cleanupError',
+              );
+            }
+            rethrow;
+          }
+        },
       );
-
-      // ------------------------------------------------------------
-      // 7. Recargar murales
-      // ------------------------------------------------------------
-      await _cargarMurales();
-
-      // ------------------------------------------------------------
-      // 8. Centrar mapa en el mural recién creado
-      // ------------------------------------------------------------
-      if (mounted) {
-        _mapController.move(LatLng(latitud, longitud), 16);
-      }
     } catch (error) {
-      // --------------------------------------------------------------
-      // Si algo falló antes del INSERT, no hay archivo que limpiar.
-      //
-      // Si el INSERT falló, el bloque interno ya intentó eliminar
-      // el archivo.
-      // --------------------------------------------------------------
-      if (dialogoAbierto && mounted) {
-        Navigator.of(context).pop();
-        dialogoAbierto = false;
-      }
-
       if (!mounted) return;
-
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(mensajeErrorAmigable(error))));
+      mostrarSnackBar(context, mensajeErrorAmigable(error), isError: true);
+      return;
     }
-  }
 
-  void _mostrarSnackBar(String mensaje, {bool isError = false}) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(mensaje),
-        backgroundColor: isError ? Colors.red[700] : Colors.green[700],
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),
-      ),
-    );
+
+    mostrarSnackBar(context, '✅ Mural guardado correctamente.');
+
+    // Recargar murales
+    await _cargarMurales();
+
+    // Centrar mapa en el mural recién creado
+    if (mounted) {
+      _mapController.move(LatLng(latitud, longitud), 16);
+    }
   }
 
   @override
@@ -1405,8 +1371,11 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
               tooltip: 'Cerrar sesión',
               onPressed: () async {
                 await supabase.auth.signOut();
-                if (mounted) {
-                  _mostrarSnackBar('Sesión cerrada. Sigues viendo el mapa.');
+                if (context.mounted) {
+                  mostrarSnackBar(
+                    context,
+                    'Sesión cerrada. Sigues viendo el mapa.',
+                  );
                 }
               },
             )
