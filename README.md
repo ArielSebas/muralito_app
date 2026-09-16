@@ -1,20 +1,18 @@
 # 🎨 Muralito App
 
-Aplicación móvil desarrollada con **Flutter para Android** orientada al mapeo colaborativo de arte urbano.
-
-Muralito permite registrar murales mediante una fotografía, obtener su ubicación geográfica y almacenar la información en **Supabase**, para luego visualizarlos sobre un mapa **OpenStreetMap**.
+Aplicación móvil desarrollada con **Flutter para Android** orientada al mapeo colaborativo de arte urbano. Muralito permite registrar murales mediante una fotografía, obtener su ubicación geográfica y almacenar la información en **Supabase**, para luego visualizarlos sobre un mapa **OpenStreetMap**.
 
 El mapa es público mediante un **modo espectador**; la autenticación solo es necesaria para registrar, editar o eliminar murales propios.
+
+Documentación de referencia (16/09/2026): **Documentación Técnica v13**, **Mejoras v13**, **Flujos funcionales v9**, **Handoff técnico #006**.
 
 ---
 
 ## 📱 Características actuales
 
 - 🗺️ Mapa interactivo con OpenStreetMap y **modo espectador** (explorar sin cuenta).
-
 - 🔐 **Autenticación con correo y contraseña** mediante Supabase Auth, con confirmación de correo y login/logout sin abandonar el mapa.
-
-- 🔑 **Contraseña segura durante el registro**:
+- 🔑 **Contraseña segura durante el registro (M1)**:
   - Mínimo 8 caracteres.
   - Una letra mayúscula.
   - Una letra minúscula.
@@ -23,55 +21,47 @@ El mapa es público mediante un **modo espectador**; la autenticación solo es n
   - Validación visual de requisitos en tiempo real.
   - Indicador de **"✓ Contraseña segura"** cuando se cumplen todos los requisitos.
   - Confirmación de contraseña validada en tiempo real.
-
-- 🔁 **Recuperación de contraseña mediante código OTP** (M2): se solicita por correo, se ingresa junto con la nueva contraseña (misma política de seguridad que en el registro), con reenvío controlado por un cooldown de 60 segundos.
-
-- 👤 Perfil de usuario: apodo y avatar automáticos (perfiles + trigger). RLS auditada y validada (DT3): lectura pública para modo espectador y autoría, modificación restringida al dueño, eliminación bloqueada desde cliente e integridad referencial ON DELETE CASCADE vinculada a auth.users.
-
-- 🧑‍🎨 **Subido por** (A3, Prueba 013): la ficha muestra el avatar y apodo de quien cargó el mural. También se muestra en modo espectador. Si el registro es antiguo y no tiene `user_id`, se etiqueta como **Muralista anónimo**.
-
-- 📷 **Registro de murales:** cámara → GPS → formulario → compresión → Storage → PostgreSQL, utilizando el `user_id` del usuario autenticado.
-
+  - El campo Contraseña **no** se queda con borde rojo al escribir o al vaciarse (DT4-01). El envío sigue bloqueado si no se cumple M1.
+- 🔁 **Recuperación de contraseña mediante código OTP (M2)**: se solicita por correo, se ingresa junto con la nueva contraseña (misma política de seguridad que en el registro), con reenvío controlado por un cooldown de 60 segundos (si el servidor pide más espera, se resincroniza).
+- 👤 **Perfil de usuario**: apodo y avatar automáticos (perfiles + trigger). **RLS auditada y validada (DT3, Prueba #015):** lectura pública para modo espectador y autoría, modificación restringida al dueño, eliminación bloqueada desde el cliente e integridad referencial `ON DELETE CASCADE` vinculada a `auth.users`.
+- 🧑‍🎨 **Subido por (A3, Prueba 013)**: la ficha muestra el avatar y apodo de quien cargó el mural. También se muestra en modo espectador. Si el registro es antiguo y no tiene `user_id`, se etiqueta como **Muralista anónimo**.
+- 📷 **Registro de murales**: cámara → pin en el mapa (M5) → formulario → compresión → Storage → PostgreSQL, utilizando el `user_id` del usuario autenticado.
+- 📍 **GPS robusto + pin manual (M5, cubre M10)**:
+  - Si el GPS está apagado, no hay permiso o hay timeout, el alta **no se aborta**.
+  - Pin fijo en el centro de la pantalla; se mueve el mapa hasta el mural.
+  - En **Registrar Nuevo Mural** se puede tocar las coordenadas y **reajustar el pin** antes de guardar.
+  - Una vez publicado, **la ubicación no se edita** (tampoco desde «Editar»).
+  - Botones según el estado: **Activar GPS** / **Permitir ubicación** / **Abrir ajustes** / **Reintentar GPS** / **Usar GPS**.
 - 🔄 **Corrección EXIF + rotación manual** antes de guardar la fotografía.
-
-- ✏️ **Edición de murales propios** (título, descripción y foto), con la misma lógica segura: la foto anterior solo se elimina tras confirmar que el cambio se guardó correctamente.
-
+- ✏️ **Edición de murales propios** (título, descripción y foto), con la misma lógica segura: la foto anterior solo se elimina tras confirmar que el cambio se guardó correctamente. **No se mueve el pin.**
 - 🗑️ **Eliminación de murales propios** con limpieza de la fotografía en Storage, protegida mediante interfaz y RLS.
-
-- 🧹 **Limpieza ante errores durante el registro:** si la fotografía se sube correctamente a Storage pero falla el INSERT del mural en PostgreSQL, la aplicación intenta eliminar el archivo recién subido para evitar archivos huérfanos.
-
+- 🧹 **Limpieza ante errores durante el registro (DT1)**: si la fotografía se sube correctamente a Storage pero falla el INSERT del mural en PostgreSQL, la aplicación intenta eliminar el archivo recién subido para evitar archivos huérfanos.
 - 🧩 **Clustering de murales a menos de 30 m**, con lista de selección y zoom de contexto.
-
 - 🗺️ **Zoom del mapa limitado** (niveles 6–18) para reducir problemas de memoria al realizar zoom y desplazamiento.
-
-- 💬 Mensajes de error breves y en español.
-
+- 💬 Mensajes de error breves y en español (DT4). Diálogos de carga que se cierran una sola vez (DT13).
 - 🧭 **"Cómo llegar"** desde la ficha utilizando OpenStreetMap.
-
 - 📄 Licencia MIT.
 
 > **A4 no está implementado.** "Subido por" representa la cuenta que cargó la fotografía, no necesariamente al autor de la pintura. Ver *Próximos pasos*.
+>
+> **DT4-02 (seguridad, no es un bug):** si alguien se registra con un correo que ya existe, Supabase no revela esa información (anti-enumeración). La app muestra el mensaje genérico de confirmación de correo. Puede no llegar ningún mail; el login posterior se comporta según el estado real de esa cuenta.
 
 ---
 
 ## 🚧 Próximos pasos
 
-El backlog técnico y funcional detallado se mantiene en el documento **Mejoras priorizadas**.
+El backlog técnico y funcional detallado se mantiene en el documento **Mejoras priorizadas** (v13).
 
 ### 🔧 Siguiente trabajo técnico
-
-- **DT3 — Auditoría RLS de la tabla `perfiles`**
-  - Confirmar que las políticas `SELECT`/`INSERT`/`UPDATE` no permiten consultar ni modificar perfiles ajenos de forma indebida.
-  - Definir si hace falta una política `DELETE` explícita.
+- **B1 — Restringir el listado público del bucket de Storage** (cambio SQL pequeño), **o**
+- **M6 — Botón para centrar el mapa en mi ubicación** (reutiliza el GPS de M5).
 
 ### 📧 Pendiente antes de testers externos / Play Store
-
 - **Verificar un dominio propio en Resend** (SMTP usado para los correos de Auth).
   - Mientras se use el dominio de pruebas (`onboarding@resend.dev`), solo se pueden enviar correos a la dirección con la que se creó la cuenta de Resend.
   - Requiere agregar registros DNS (SPF/DKIM) al dominio elegido.
 
 ### 🔴 Alta — producto
-
 - **A4 — Autor del mural ≠ quien sube**
   - En la ficha deben verse **dos** cosas:
     - **Subido por:** cuenta que cargó la fotografía.
@@ -80,25 +70,21 @@ El backlog técnico y funcional detallado se mantiene en el documento **Mejoras 
   - Para todo el mundo: **"¿Eres el autor? Reclámalo"** (requiere sesión).
   - El artista podrá atribuirse la obra aunque otra persona haya realizado la fotografía.
   - Es independiente de la idea de publicar ocultando el apodo.
+  - Definir reglas de propiedad y reclamo **antes** de implementar.
 
 ### 🔐 Alta — cuentas
-
 - **M9 — Protección frente a contraseñas filtradas** mediante HaveIBeenPwned / configuración correspondiente de Supabase.
+  - ⛔ **Bloqueado:** requiere plan Pro de Supabase. M1 sigue como barrera en el cliente.
 
 ### 🟡 Media
-
 - **M4 — "Cómo llegar" a Google Maps.**
-- **M5 — GPS robusto + posibilidad de ajustar manualmente la ubicación.**
 - **M6 — Botón para centrar el mapa en mi ubicación.**
 - **M7 — Visor de imagen con pinch-to-zoom.**
-- **A1.4 — Historial de versiones si se repinta el muro.**
+- **A1.4 — Historial de versiones si se repinta el muro.** Cuando exista, la ubicación de la versión actual queda congelada (decisión de M5).
 
 ### 🚀 M16 — Sistema de actualización de versión
-
 Sistema para detectar cuando existe una versión más reciente de Muralito y avisar al usuario.
-
 Características previstas:
-
 - Detectar la versión instalada.
 - Consultar la versión más reciente disponible.
 - Mostrar una notificación o diálogo cuando exista una actualización.
@@ -108,31 +94,25 @@ Características previstas:
 - Las actualizaciones serán inicialmente **opcionales y no bloqueantes**.
 
 Ejemplo conceptual:
-
 > 🎉 **¡Hay una nueva versión de Muralito!**
->
+> 
 > Hemos agregado nuevas funciones y mejoras.
->
+> 
 > **[Actualizar] [Ahora no]**
 
 ### 👁️ Mejoras futuras de autenticación
-
 - **Visibilidad de contraseña**
   - Añadir un botón de ojo para mostrar/ocultar la contraseña.
   - Posible pequeña animación al cambiar entre visible y oculta.
-
 - **Mejora del mensaje de confirmación de correo**
   - Mensaje más amigable después del registro.
   - Recordatorio para revisar **Spam / Correo no deseado**.
-
 - **Reenviar correo de confirmación**
   - Permitir solicitar nuevamente el correo de confirmación (distinto del reenvío de código de M2).
   - Considerar posteriormente límites para evitar solicitudes excesivas.
 
 ### 🔵 Más adelante
-
 - Publicar estando logueado pero ocultando el apodo ("como anónimo").
-- B1 — Restringir el listado público del bucket de Storage.
 - M8 — Perfil público desde "Subido por".
 - B2 — Biografía y redes sociales.
 - B3 — Inicio de sesión con Google.
@@ -142,6 +122,7 @@ Ejemplo conceptual:
 - B7 — Límites para cambios de apodo.
 - Sistema comunitario de verificación, reportes y moderación.
 - Optimización adicional del rendimiento del mapa.
+- DT10 — Separar `MapaPrincipalPage` (no es el siguiente parche).
 
 ---
 
@@ -161,10 +142,9 @@ Ejemplo conceptual:
 | Variables de entorno | `flutter_dotenv` | ^6.0.1 |
 | Enlaces externos | `url_launcher` | ^6.3.1 |
 
-No se agregó ninguna dependencia nueva para M2 (recuperación por OTP) ni para DT2 (avatar seguro): ambas reutilizan `supabase_flutter`, `image_picker` y `flutter_image_compress` ya existentes.
+No se agregó ninguna dependencia nueva para M2 (recuperación por OTP), DT2 (avatar seguro), DT3, DT4, DT13 ni M5.
 
 ### Dependencias principales
-
 ```yaml
 dependencies:
   flutter:
@@ -183,12 +163,11 @@ dependencies:
 ---
 
 ## 📋 Requisitos
-
-* Flutter 3.47.0 · Dart 3.13.0
-* Android SDK Platform 36 + Command-line Tools
-* Android Studio o VS Code
-* Dispositivo Android físico o emulador
-* Proyecto de Supabase configurado, **incluyendo SMTP propio** (ver sección siguiente)
+- Flutter 3.47.0 · Dart 3.13.0
+- Android SDK Platform 36 + Command-line Tools
+- Android Studio o VS Code
+- Dispositivo Android físico o emulador
+- Proyecto de Supabase configurado, incluyendo SMTP propio (ver sección siguiente)
 
 ---
 
@@ -201,7 +180,6 @@ flutter pub get
 ```
 
 Crear un archivo `.env` en la raíz del proyecto (usar `.env.example` como plantilla):
-
 ```env
 SUPABASE_URL=TU_SUPABASE_URL
 SUPABASE_ANON_KEY=TU_SUPABASE_ANON_KEY
@@ -216,7 +194,6 @@ flutter run
 ## 🔐 Configuración de Supabase
 
 ### Tabla `murales` (PostgreSQL)
-
 | Campo | Tipo | Nullable |
 | --- | --- | --- |
 | id | bigint (PK, identity) | No |
@@ -228,37 +205,40 @@ flutter run
 | longitud | double precision | No |
 | user_id | uuid (references auth.users) | Sí |
 
-`user_id` representa a la cuenta que subió el mural, no necesariamente al artista. Esto se modificará cuando se implemente A4 — Autor del mural ≠ quien sube.
+> `user_id` representa a la cuenta que subió el mural, no necesariamente al artista. Esto se modificará cuando se implemente A4 — Autor del mural ≠ quien sube.
 
 **Row Level Security:**
-* `SELECT`: Público (`anon` y `authenticated`)
-* `INSERT`: Solo `authenticated` con `auth.uid() = user_id`
-* `UPDATE`: Solo propietario (`auth.uid() = user_id`)
-* `DELETE`: Solo propietario (`auth.uid() = user_id`)
+- **SELECT:** Público (anon y authenticated)
+- **INSERT:** Solo authenticated con `auth.uid() = user_id`
+- **UPDATE:** Solo propietario (`auth.uid() = user_id`)
+- **DELETE:** Solo propietario (`auth.uid() = user_id`)
 
-Los murales sin `user_id` (pruebas antiguas) no se pueden borrar desde la app. Eliminarlos en Table Editor.
+*Los murales sin `user_id` (pruebas antiguas) no se pueden borrar desde la app. Eliminarlos en Table Editor.*
+*Al editar desde la app no se envían latitud ni longitud (M5): la ubicación queda fija una vez publicado el mural.*
 
 ### Tabla `perfiles` (PostgreSQL)
-
 | Campo | Tipo | Nullable |
 | --- | --- | --- |
-| id | uuid (PK, references auth.users) | No |
+| id | uuid (PK, references auth.users ON DELETE CASCADE) | No |
 | apodo | text | No |
 | avatar_url | text | Sí |
 | created_at | timestamptz | No |
 
-**Row Level Security:**
-* `SELECT`: Público (`anon` y `authenticated`)
-* `INSERT`: Solo propio usuario (`auth.uid() = id`)
-* `UPDATE`: Solo propio usuario (`auth.uid() = id`)
+**Row Level Security (DT3 VALIDADO — Prueba #015):**
+- **SELECT:** Público (anon y authenticated) — necesario para espectador y «Subido por»
+- **INSERT:** Solo propio usuario (`auth.uid() = id`)
+- **UPDATE:** Solo propio usuario (`auth.uid() = id`, USING y WITH CHECK)
+- **DELETE:** sin política = denegado para el cliente (`perfil_sobrevivio = 1` en DT3-04)
 
-Auditoría completa de estas políticas: pendiente como **DT3**.
+*El alta automática del perfil la hace el trigger SECURITY DEFINER, no el cliente.*
 
 ### Trigger automático
-
 ```sql
 create or replace function public.manejar_nuevo_usuario()
-returns trigger language plpgsql security definer set search_path = public as $$
+returns trigger
+language plpgsql
+security definer set search_path = public
+as $$
 begin
   insert into public.perfiles (id, apodo)
   values (new.id, coalesce(split_part(new.email, '@', 1), 'Muralista'));
@@ -272,49 +252,41 @@ for each row execute procedure public.manejar_nuevo_usuario();
 ```
 
 ### Storage — bucket `murales` (público)
-
 Compartido entre fotografías de murales y avatares de perfil.
+- **SELECT:** Lectura pública de objetos (renderizado en mapa y AppBar)
+- **INSERT:** Solo usuarios authenticated
+- **DELETE:** Solo propietario del archivo (`bucket_id = 'murales' and owner = auth.uid()`)
 
-* `SELECT`: Lectura pública de objetos (renderizado en mapa y AppBar)
-* `INSERT`: Solo usuarios `authenticated`
-* `DELETE`: Solo propietario del archivo (`bucket_id = 'murales' and owner = auth.uid()`)
-
-⚠️ Nota de seguridad: el bucket actualmente permite listado público de archivos. Se recomienda restringir la política SELECT de `storage.objects` para evitar exponer el listado completo. Pendiente: **B1**.
+⚠️ **Nota de seguridad:** el bucket actualmente permite listado público de archivos. Se recomienda restringir la política SELECT de `storage.objects` para evitar exponer el listado completo. Pendiente: B1.
 
 ### Envío de correos (Auth) — SMTP vía Resend
+Los correos de confirmación de registro y de recuperación de contraseña requieren SMTP propio en Supabase (sin él, no se puede editar la plantilla para mostrar el código OTP, y el envío queda limitado a 2 correos/hora).
 
-Los correos de confirmación de registro y de recuperación de contraseña requieren **SMTP propio** en Supabase (sin él, no se puede editar la plantilla para mostrar el código OTP, y el envío queda limitado a 2 correos/hora).
-
-Se probó primero con Gmail personal, pero los reenvíos eran aceptados sin error visible y nunca llegaban al destinatario (filtro anti-abuso silencioso de Gmail ante envíos automatizados). Se migró a **Resend**:
-
-```
+Se probó primero con Gmail personal, pero los reenvíos eran aceptados sin error visible y nunca llegaban al destinatario (filtro anti-abuso silencioso de Gmail ante envíos automatizados). Se migró a Resend:
+```text
 Host: smtp.resend.com
 Port: 465
 Username: resend
 Password: <API key de Resend, con permiso "Sending access">
 ```
-
-⚠️ Mientras se use el dominio de pruebas de Resend (`onboarding@resend.dev`), solo se pueden enviar correos a la dirección con la que se creó la cuenta de Resend. Verificar un dominio propio es un paso pendiente antes de tener testers externos o publicar en Play Store.
+⚠️ *Mientras se use el dominio de pruebas de Resend (`onboarding@resend.dev`), solo se pueden enviar correos a la dirección con la que se creó la cuenta de Resend. Verificar un dominio propio es un paso pendiente antes de tener testers externos o publicar en Play Store.*
 
 La plantilla de correo "Reset Password" en Supabase debe incluir `{{ .Token }}` para que el correo muestre el código de recuperación, no solo el enlace.
 
 ---
 
 ## 📱 Permisos Android
-
 ```xml
 <uses-permission android:name="android.permission.INTERNET"/>
 <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
 <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
 <uses-permission android:name="android.permission.CAMERA"/>
 ```
-
-La galería no requiere permiso adicional en el manifiesto; `image_picker` lo gestiona internamente.
+*La galería no requiere permiso adicional en el manifiesto; `image_picker` lo gestiona internamente.*
 
 ---
 
 ## 📁 Estructura del proyecto
-
 ```text
 muralito_app/
 ├── android/app/src/main/AndroidManifest.xml
@@ -335,7 +307,8 @@ muralito_app/
 │       ├── dialogo_carga.dart
 │       ├── editar_mural_modal.dart
 │       ├── editar_perfil_modal.dart
-│       └── formulario_mural_modal.dart
+│       ├── formulario_mural_modal.dart
+│       └── ajustar_ubicacion_page.dart
 ├── .env
 ├── .env.example
 ├── .gitignore
@@ -343,52 +316,56 @@ muralito_app/
 ├── pubspec.yaml
 └── README.md
 ```
-
-`recuperar_password_page.dart` se agregó junto con M2.
+*`recuperar_password_page.dart` se agregó junto con M2. `ajustar_ubicacion_page.dart` se agregó junto con M5.*
 
 ---
 
 ## 🧪 Estado de pruebas
 
-El proyecto cuenta con pruebas funcionales y técnicas realizadas durante el desarrollo. El detalle caso por caso se mantiene en la **Documentación Técnica**; aquí un resumen.
+El proyecto cuenta con pruebas funcionales y técnicas realizadas durante el desarrollo. El detalle caso por caso se mantiene en la Documentación Técnica v13; aquí un resumen.
 
-**Pruebas principales**
-- Prueba 001 — Registro completo de mural.
-- Prueba 002 — Ficha de detalle y solapamiento de pines.
-- Prueba 003 — Clustering de 30 m.
-- Prueba 004 — EXIF + rotación manual.
-- Prueba 005 — Autenticación, confirmación de correo, `user_id`, RLS y Storage.
-- Prueba 006 — Modo espectador.
-- Prueba 007 — Edición y eliminación de murales.
-- Prueba 008/009 — Cambio de fotografía al editar y limpieza de Storage.
-- Prueba 010 — Perfil de usuario.
-- Prueba 011 — Refactor de estructura de `lib`.
-- Prueba 012 — Eliminación de mural con limpieza de Storage.
-- Prueba 013 — "Subido por" y casos con usuarios/murales antiguos.
-- DT1-01 / DT1-02 — Registro normal y fallo controlado del INSERT con limpieza de Storage.
-- DT2-01 a DT2-05 — Actualización segura del avatar (éxito, fallo de UPDATE, cancelar, error de subida, repetición sin huérfanos).
-- M1-01 a M1-09, M1-UX-01 a M1-UX-04 — Validación de contraseña, confirmación, registro y login.
-- M2-01 a M2-08 — Recuperación de contraseña por OTP, reenvío y cooldown.
+### Pruebas principales
+- **Prueba 001** — Registro completo de mural.
+- **Prueba 002** — Ficha de detalle y solapamiento de pines.
+- **Prueba 003** — Clustering de 30 m.
+- **Prueba 004** — EXIF + rotación manual.
+- **Prueba 005** — Autenticación, confirmación de correo, user_id, RLS y Storage.
+- **Prueba 006** — Modo espectador.
+- **Prueba 007** — Edición y eliminación de murales.
+- **Prueba 008/009** — Cambio de fotografía al editar y limpieza de Storage.
+- **Prueba 010** — Perfil de usuario.
+- **Prueba 011** — Refactor de estructura de lib.
+- **Prueba 012** — Eliminación de mural con limpieza de Storage.
+- **Prueba 013** — "Subido por" y casos con usuarios/murales antiguos.
+- **DT1-01 / DT1-02** — Registro normal y fallo controlado del INSERT con limpieza de Storage.
+- **DT2-01 a DT2-05** — Actualización segura del avatar (éxito, fallo de UPDATE, cancelar, error de subida, repetición sin huérfanos).
+- **M1-01 a M1-09, M1-UX-01 a M1-UX-04** — Validación de contraseña, confirmación, registro y login.
+- **M2-01 a M2-08** — Recuperación de contraseña por OTP, reenvío y cooldown.
+- **DT3-01 a DT3-04** — RLS perfiles (Prueba #015): lectura anon, UPDATE cruzado bloqueado, UPDATE propio, DELETE denegado.
+- **DT4-01 a DT4-07, DT13-01 a DT13-03** — errores en español, cooldown, red, cierre de diálogos; DT4-01 revalidado (campo Contraseña sin borde rojo persistente).
+- **M5-01 a M5-11** — GPS ok, pin movido, GPS apagado, permiso denegado, timeout, cancelar pin, alta normal, editar no mueve coords, botones Activar GPS / Permitir ubicación, reajuste desde el formulario.
+- **`flutter analyze`:** limpio (sin problemas), 15–16/09/2026.
 
-**Estado actual**
-
+### Estado actual
 | Elemento | Estado |
 | --- | --- |
-| M1 — Contraseña fuerte | ✅ DONE |
-| DT1 — Limpieza de Storage ante fallo de INSERT | ✅ DONE |
-| DT2 — Actualización segura del avatar | ✅ DONE |
-| M2 — Recuperación de contraseña | ✅ DONE |
-| DT3 — Auditoría RLS de perfiles | ✅ DONE |
-| M9 — Protección de contraseñas filtradas | ⛔ Bloqueado (Requiere Plan Pro)
-| DT4 — Unificación de errores y loading | 🔜 Siguiente 
-| M16 — Actualización de versión | 📋 Backlog |
+| **M1 — Contraseña fuerte** | ✅ DONE |
+| **DT1 — Limpieza de Storage ante fallo de INSERT** | ✅ DONE |
+| **DT2 — Actualización segura del avatar** | ✅ DONE |
+| **M2 — Recuperación de contraseña** | ✅ DONE |
+| **DT3 — Auditoría RLS de perfiles** | ✅ DONE (Prueba #015) |
+| **DT4 / DT13 — Errores, loading y cierre de diálogos** | ✅ DONE |
+| **M5 / M10 — GPS robusto + pin en el alta** | ✅ DONE (M5-01…11) |
+| **M6 — Centrar el mapa en mi ubicación** | 📋 Candidato |
+| **B1 — Listing público de Storage** | 📋 Candidato (seguridad) |
+| **M9 — Protección de contraseñas filtradas** | ⛔ Bloqueado (requiere Plan Pro) |
+| **A4 — Autor del mural ≠ quien sube** | 📋 Backlog (definir reglas) |
+| **M16 — Actualización de versión** | 📋 Backlog |
 
 ---
 
 ## 📜 Licencia
-
-Distribuido bajo la licencia **MIT**. Ver [LICENSE](LICENSE).
+Distribuido bajo la licencia MIT. Ver LICENSE.
 
 ## 👨‍💻 Autor
-
-**Ariel Sebastian Cuenca Paillacho** — proyecto para el registro y visualización colaborativa de arte urbano.
+Ariel Sebastian Cuenca Paillacho — proyecto para el registro y visualización colaborativa de arte urbano.

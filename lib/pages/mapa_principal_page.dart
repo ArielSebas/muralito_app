@@ -4,7 +4,6 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -17,6 +16,7 @@ import '../utils/helpers.dart';
 import '../widgets/formulario_mural_modal.dart';
 import '../widgets/editar_mural_modal.dart';
 import '../widgets/editar_perfil_modal.dart';
+import '../widgets/ajustar_ubicacion_page.dart';
 import 'auth_page.dart';
 
 class MapaPrincipalPage extends StatefulWidget {
@@ -507,6 +507,8 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
     final String descripcion = resultado['descripcion'] as String;
     final String? nuevaFotoPath = resultado['nuevaFotoPath'] as String?;
     final int rotacion = resultado['rotacion'] as int? ?? 0;
+
+    // M5: al editar NO se toca latitud/longitud. Solo alta de mural mueve el pin.
 
     // ── Caso simple: no se cambió la foto ──
     // Mismo comportamiento que antes, no toca Storage.
@@ -1021,18 +1023,18 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
   }
 }
 
-  /// Flujo completo: cámara → GPS → formulario → subida → refresh
+  /// Flujo M5: cámara → pin (GPS si se puede, si no el mapa) → formulario → subida.
+  ///
+  /// El pin **solo** se ajusta al registrar. Editar la ubicación de un mural
+  /// ya publicado queda fuera de este ticket (riesgo de coordenadas falsas).
+  /// Cuando exista historial de fotos (A1.4), esa ubicación se congelará.
   Future<void> _iniciarFlujoNuevoMural() async {
     if (!_haySesion) {
       await _pedirSesionParaNuevoMural();
       return;
     }
 
-    // 1. Verificar permisos de ubicación
-    final permiso = await _verificarPermisosUbicacion();
-    if (!permiso) return;
-
-    // 2. Abrir cámara
+    // 1. Cámara primero: si el GPS falla, la foto no se tira (M5).
     final XFile? foto = await ImagePicker().pickImage(
       source: ImageSource.camera,
       maxWidth: 1920,
@@ -1040,31 +1042,29 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
       imageQuality: 85,
     );
 
-    if (foto == null) return; // Usuario canceló
+    if (foto == null) return;
 
-    // 3. Obtener coordenadas GPS
-    Position? posicion;
+    if (!mounted) return;
+
+    // Centro inicial inmediato (el mapa de pin intenta GPS al abrirse).
+    LatLng fallback;
     try {
-      posicion = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.best,
-        ),
-      );
-    } catch (e) {
-      // DT4: el detalle técnico va solo a la consola; el usuario ve un
-      // mensaje amigable sin contenido técnico.
-      debugPrint('⚠️ Error al obtener la ubicación GPS: $e');
-      if (!mounted) return;
-      mostrarSnackBar(
-        context,
-        '⚠️ No se pudo obtener tu ubicación GPS. Inténtalo de nuevo.',
-        isError: true,
-      );
-      return;
+      fallback = _mapController.camera.center;
+    } catch (_) {
+      fallback = const LatLng(-0.2800, -78.5450);
     }
 
-    // 4. Abrir modal de formulario
-    if (!mounted) return;
+    // 2. El usuario confirma o mueve el pin (cubre M5 y M10).
+    //    Si el GPS falla, el flujo NO se aborta.
+    final LatLng? confirmada = await Navigator.of(context).push<LatLng>(
+      MaterialPageRoute(
+        builder: (_) => AjustarUbicacionPage(inicial: fallback),
+      ),
+    );
+
+    if (confirmada == null || !mounted) return;
+
+    // 3. Formulario (coords ya confirmadas en el pin).
     final Map<String, dynamic>? resultado =
         await showModalBottomSheet<Map<String, dynamic>>(
           context: context,
@@ -1072,21 +1072,25 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
           backgroundColor: Colors.transparent,
           builder: (ctx) => FormularioMuralModal(
             fotoPath: foto.path,
-            latitud: posicion!.latitude,
-            longitud: posicion.longitude,
+            latitud: confirmada.latitude,
+            longitud: confirmada.longitude,
           ),
         );
 
-    if (resultado == null) return; // Usuario canceló el formulario
+    if (resultado == null) return;
 
-    // 5. Subir imagen y guardar en BD
+    final double latGuardar =
+        (resultado['latitud'] as num?)?.toDouble() ?? confirmada.latitude;
+    final double lngGuardar =
+        (resultado['longitud'] as num?)?.toDouble() ?? confirmada.longitude;
+
     await _subirMural(
       titulo: resultado['titulo'],
       descripcion: resultado['descripcion'],
       imagePath: foto.path,
       rotacion: resultado['rotacion'],
-      latitud: posicion.latitude,
-      longitud: posicion.longitude,
+      latitud: latGuardar,
+      longitud: lngGuardar,
     );
   }
 
@@ -1134,55 +1138,6 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
       MaterialPageRoute(builder: (_) => AuthPage(empezarEnRegistro: registro)),
     );
   }
-
-  /// Verifica y solicita permisos de ubicación en tiempo de ejecución
-Future<bool> _verificarPermisosUbicacion() async {
-  final bool serviceEnabled =
-      await Geolocator.isLocationServiceEnabled();
-
-  if (!mounted) return false;
-
-  if (!serviceEnabled) {
-    mostrarSnackBar(
-      context,
-      'Por favor activa el GPS del dispositivo.',
-      isError: true,
-    );
-    return false;
-  }
-
-  LocationPermission permission =
-      await Geolocator.checkPermission();
-
-  if (!mounted) return false;
-
-  if (permission == LocationPermission.denied) {
-    permission = await Geolocator.requestPermission();
-
-    if (!mounted) return false;
-
-    if (permission == LocationPermission.denied) {
-      mostrarSnackBar(
-        context,
-        'Permiso de ubicación denegado.',
-        isError: true,
-      );
-      return false;
-    }
-  }
-
-  if (permission == LocationPermission.deniedForever) {
-    mostrarSnackBar(
-      context,
-      'Permiso de ubicación denegado permanentemente. '
-      'Actívalo en Configuración del dispositivo.',
-      isError: true,
-    );
-    return false;
-  }
-
-  return true;
-}
 
   /// Comprime la imagen, la sube a Storage y guarda el registro en
   /// PostgreSQL. El diálogo de carga se cierra exactamente una vez

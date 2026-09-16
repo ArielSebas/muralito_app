@@ -1,5 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:latlong2/latlong.dart';
+import 'ajustar_ubicacion_page.dart';
 
 class FormularioMuralModal extends StatefulWidget {
   final String fotoPath;
@@ -22,12 +24,37 @@ class _FormularioMuralModalState extends State<FormularioMuralModal> {
   final _tituloController = TextEditingController();
   final _descripcionController = TextEditingController();
   int _rotacion = 0; // 0, 90, 180, 270
+  late double _latitud;
+  late double _longitud;
+
+  @override
+  void initState() {
+    super.initState();
+    _latitud = widget.latitud;
+    _longitud = widget.longitud;
+  }
 
   @override
   void dispose() {
     _tituloController.dispose();
     _descripcionController.dispose();
     super.dispose();
+  }
+
+  Future<void> _cambiarUbicacion() async {
+    final LatLng? nueva = await Navigator.of(context).push<LatLng>(
+      MaterialPageRoute(
+        builder: (_) => AjustarUbicacionPage(
+          inicial: LatLng(_latitud, _longitud),
+          intentarGpsAlAbrir: false,
+        ),
+      ),
+    );
+    if (nueva == null || !mounted) return;
+    setState(() {
+      _latitud = nueva.latitude;
+      _longitud = nueva.longitude;
+    });
   }
 
   void _rotarImagen() {
@@ -117,35 +144,58 @@ class _FormularioMuralModalState extends State<FormularioMuralModal> {
                 ],
               ),
 
-              // Info de coordenadas
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.deepPurple.withValues(alpha: 0.1),
+              // M5: se puede reajustar el pin solo aquí, antes de publicar.
+              // Después del INSERT la ubicación queda fija (tampoco en Editar).
+              Material(
+                color: Colors.deepPurple.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+                child: InkWell(
+                  onTap: _cambiarUbicacion,
                   borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      Icons.location_on,
-                      color: Colors.deepPurple,
-                      size: 18,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
                     ),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Lat: ${widget.latitud.toStringAsFixed(5)} | '
-                      'Lng: ${widget.longitud.toStringAsFixed(5)}',
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: Colors.deepPurple,
-                        fontWeight: FontWeight.w500,
-                      ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.location_on,
+                          color: Colors.deepPurple,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Lat: ${_latitud.toStringAsFixed(5)} | '
+                                'Lng: ${_longitud.toStringAsFixed(5)}',
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.deepPurple,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              Text(
+                                'Toca para ajustar el pin',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.deepPurple[300],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Icon(
+                          Icons.edit_location_alt_outlined,
+                          color: Colors.deepPurple,
+                          size: 20,
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ),
               const SizedBox(height: 20),
@@ -225,6 +275,8 @@ class _FormularioMuralModalState extends State<FormularioMuralModal> {
                             'titulo': _tituloController.text.trim(),
                             'descripcion': _descripcionController.text.trim(),
                             'rotacion': _rotacion,
+                            'latitud': _latitud,
+                            'longitud': _longitud,
                           });
                         }
                       },
