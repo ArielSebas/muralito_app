@@ -6,10 +6,12 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/supabase_client.dart';
+import '../services/ubicacion_service.dart';
 import '../models/mural.dart';
 import '../models/perfil.dart';
 import '../utils/helpers.dart';
@@ -28,6 +30,9 @@ class MapaPrincipalPage extends StatefulWidget {
 
 class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
   final MapController _mapController = MapController();
+  final UbicacionService _ubicacionService = const UbicacionService();
+  bool _buscandoUbicacion = false;
+  Timer? _avisoUbicacionTimer;
   final List<Mural> _murales = [];
   Perfil? _perfilActual;
   bool _cargandoMurales = true;
@@ -36,6 +41,122 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
   StreamSubscription<AuthState>? _authSub;
 
   bool get _haySesion => supabase.auth.currentUser != null;
+
+
+  Future<void> _centrarEnMiUbicacion() async {
+    if (_buscandoUbicacion) return;
+
+    setState(() => _buscandoUbicacion = true);
+
+    try {
+      final resultado = await _ubicacionService.obtenerUbicacion();
+
+      if (!mounted) return;
+
+      if (resultado.posicion != null) {
+        final posicion = resultado.posicion!;
+        final LatLng ubicacion = LatLng(posicion.latitude, posicion.longitude);
+
+        try {
+          _mapController.move(ubicacion, 17);
+        } catch (_) {
+          // El mapa puede no estar listo para recibir el movimiento todavía.
+        }
+
+        if (resultado.estado == EstadoUbicacion.sinSenal) {
+          _mostrarAvisoUbicacion(
+            'No hay GPS actual. Te llevé a la última ubicación conocida.',
+            isError: false,
+          );
+        }
+      } else {
+        switch (resultado.estado) {
+          case EstadoUbicacion.gpsApagado:
+            _mostrarAvisoUbicacion(
+              'El GPS está apagado. Actívalo para centrar el mapa.',
+              accion: SnackBarAction(
+                label: 'Activar',
+                onPressed: () => Geolocator.openLocationSettings(),
+              ),
+            );
+            break;
+          case EstadoUbicacion.permisoDenegado:
+            _mostrarAvisoUbicacion(
+              'Necesitamos permiso de ubicación para centrar el mapa.',
+            );
+            break;
+          case EstadoUbicacion.permisoBloqueado:
+            _mostrarAvisoUbicacion(
+              'El permiso de ubicación está bloqueado. Actívalo desde los ajustes.',
+              accion: SnackBarAction(
+                label: 'Ajustes',
+                onPressed: () => Geolocator.openAppSettings(),
+              ),
+            );
+            break;
+          case EstadoUbicacion.sinSenal:
+            _mostrarAvisoUbicacion(
+              'No se pudo obtener tu ubicación actual.',
+            );
+            break;
+          case EstadoUbicacion.listo:
+            break;
+        }
+      }
+    } catch (e) {
+      if (!mounted) return;
+      _mostrarAvisoUbicacion(
+        'No se pudo obtener tu ubicación. Inténtalo de nuevo.',
+      );
+    } finally {
+      if (mounted) setState(() => _buscandoUbicacion = false);
+    }
+  }
+
+
+  void _mostrarAvisoUbicacion(
+    String mensaje, {
+    SnackBarAction? accion,
+    bool isError = true,
+  }) {
+    _avisoUbicacionTimer?.cancel();
+    _avisoUbicacionTimer = null;
+
+    final messenger = ScaffoldMessenger.of(context);
+
+    // Evita que varios toques acumulen avisos.
+    messenger.removeCurrentSnackBar();
+
+    final SnackBarAction? accionEnvuelta = accion == null
+        ? null
+        : SnackBarAction(
+            label: accion.label,
+            onPressed: () {
+              _avisoUbicacionTimer?.cancel();
+              _avisoUbicacionTimer = null;
+              accion.onPressed();
+            },
+          );
+
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(mensaje),
+        backgroundColor: isError ? Colors.red[700] : null,
+        duration: const Duration(seconds: 3),
+        action: accionEnvuelta,
+      ),
+    );
+
+    // El cierre se controla explícitamente para que el aviso no quede
+    // persistente aunque el SnackBar tenga una acción.
+    _avisoUbicacionTimer = Timer(const Duration(seconds: 3), () {
+      if (!mounted) return;
+      messenger.hideCurrentSnackBar(
+        reason: SnackBarClosedReason.timeout,
+      );
+      _avisoUbicacionTimer = null;
+    });
+  }
 
   @override
   void initState() {
@@ -52,6 +173,7 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
 
   @override
   void dispose() {
+    _avisoUbicacionTimer?.cancel();
     _authSub?.cancel();
     super.dispose();
   }
@@ -1420,10 +1542,30 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
             ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _iniciarFlujoNuevoMural,
-        icon: const Icon(Icons.add_a_photo),
-        label: const Text('Nuevo Mural'),
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          FloatingActionButton(
+            heroTag: 'mi-ubicacion',
+            onPressed: _buscandoUbicacion ? null : _centrarEnMiUbicacion,
+            tooltip: 'Mi ubicación',
+            child: _buscandoUbicacion
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.my_location),
+          ),
+          const SizedBox(height: 12),
+          FloatingActionButton.extended(
+            heroTag: 'nuevo-mural',
+            onPressed: _iniciarFlujoNuevoMural,
+            icon: const Icon(Icons.add_a_photo),
+            label: const Text('Nuevo Mural'),
+          ),
+        ],
       ),
     );
   }

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
+
+import '../services/ubicacion_service.dart';
 import 'package:latlong2/latlong.dart';
 
 /// M5 — confirmar o ajustar el pin al **registrar** un mural.
@@ -104,86 +106,77 @@ class _AjustarUbicacionPageState extends State<AjustarUbicacionPage> {
     setState(() => _buscandoGps = true);
 
     try {
-      final enabled = await Geolocator.isLocationServiceEnabled();
-      if (!enabled) {
-        if (!mounted) return;
-        setState(() {
-          _estadoGps = _EstadoGps.apagado;
-          _aviso =
-              'El GPS está apagado. Pulsa «Activar GPS» o coloca el pin a mano.';
-          _buscandoGps = false;
-        });
-        return;
-      }
-
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-
-      if (permission == LocationPermission.denied) {
-        if (!mounted) return;
-        setState(() {
-          _estadoGps = _EstadoGps.sinPermiso;
-          _aviso =
-              'Necesitamos permiso de ubicación. Pulsa «Permitir ubicación» o coloca el pin a mano.';
-          _buscandoGps = false;
-        });
-        return;
-      }
-
-      if (permission == LocationPermission.deniedForever) {
-        if (!mounted) return;
-        setState(() {
-          _estadoGps = _EstadoGps.bloqueado;
-          _aviso =
-              'El permiso está bloqueado. Pulsa «Abrir ajustes» para activarlo, o coloca el pin a mano.';
-          _buscandoGps = false;
-        });
-        return;
-      }
-
-      final pos = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.best,
-          timeLimit: Duration(seconds: 10),
-        ),
-      );
+      final resultado = await const UbicacionService().obtenerUbicacion();
 
       if (!mounted) return;
-      final LatLng gps = LatLng(pos.latitude, pos.longitude);
-      try {
-        _mapController.move(gps, 17);
-      } catch (_) {}
-      setState(() {
-        _punto = gps;
-        _aviso = null;
-        _estadoGps = _EstadoGps.listo;
-        _buscandoGps = false;
-      });
+
+      if (resultado.posicion != null) {
+        final gps = LatLng(
+          resultado.posicion!.latitude,
+          resultado.posicion!.longitude,
+        );
+        try {
+          _mapController.move(gps, 17);
+        } catch (_) {}
+
+        if (resultado.estado == EstadoUbicacion.sinSenal) {
+          setState(() {
+            _punto = gps;
+            _estadoGps = _EstadoGps.sinSenal;
+            _aviso =
+                'No hay GPS actual. Te dejé en la última ubicación conocida; ajústala si hace falta.';
+            _buscandoGps = false;
+          });
+          return;
+        }
+
+        setState(() {
+          _punto = gps;
+          _aviso = null;
+          _estadoGps = _EstadoGps.listo;
+          _buscandoGps = false;
+        });
+        return;
+      }
+
+      switch (resultado.estado) {
+        case EstadoUbicacion.gpsApagado:
+          setState(() {
+            _estadoGps = _EstadoGps.apagado;
+            _aviso =
+                'El GPS está apagado. Pulsa «Activar GPS» o coloca el pin a mano.';
+            _buscandoGps = false;
+          });
+          return;
+        case EstadoUbicacion.permisoDenegado:
+          setState(() {
+            _estadoGps = _EstadoGps.sinPermiso;
+            _aviso =
+                'Necesitamos permiso de ubicación. Pulsa «Permitir ubicación» o coloca el pin a mano.';
+            _buscandoGps = false;
+          });
+          return;
+        case EstadoUbicacion.permisoBloqueado:
+          setState(() {
+            _estadoGps = _EstadoGps.bloqueado;
+            _aviso =
+                'El permiso está bloqueado. Pulsa «Abrir ajustes» para activarlo, o coloca el pin a mano.';
+            _buscandoGps = false;
+          });
+          return;
+        case EstadoUbicacion.sinSenal:
+          setState(() {
+            _estadoGps = _EstadoGps.sinSenal;
+            _aviso =
+                'No hay señal GPS. Te dejé en el mapa; mueve el pin hasta el mural.';
+            _buscandoGps = false;
+          });
+          return;
+        case EstadoUbicacion.listo:
+          break;
+      }
     } catch (_) {
       if (!mounted) return;
-      Position? last;
-      try {
-        last = await Geolocator.getLastKnownPosition();
-      } catch (_) {
-        last = null;
-      }
-      if (!mounted) return;
-      if (last != null) {
-        final LatLng conocida = LatLng(last.latitude, last.longitude);
-        try {
-          _mapController.move(conocida, 17);
-        } catch (_) {}
-        setState(() {
-          _punto = conocida;
-          _estadoGps = _EstadoGps.sinSenal;
-          _aviso =
-              'No hay GPS actual. Te dejé en la última ubicación conocida; ajústala si hace falta.';
-          _buscandoGps = false;
-        });
-        return;
-      }
       setState(() {
         _estadoGps = _EstadoGps.sinSenal;
         _aviso =
