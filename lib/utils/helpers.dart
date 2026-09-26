@@ -37,6 +37,28 @@ Future<XFile?> elegirFuenteFoto(BuildContext context) async {
   );
 }
 
+/// Genera un nombre de archivo único y seguro para el bucket "murales" a
+/// partir de un título libre.
+///
+/// Reemplaza cualquier carácter fuera de [a-zA-Z0-9 con tildes, guiones y
+/// guion bajo] por "_". Esto es deliberadamente estricto: Supabase Storage
+/// interpreta "/" como separador de carpeta, así que un título como
+/// "Mural 3/4" podría crear sin querer una subruta implícita
+/// (`.../3/4.jpg`). Eso rompería [borrarFotoDeStorage], que solo toma el
+/// último segmento de la URL (riesgo documentado como DT8): la foto
+/// anterior quedaría huérfana en Storage sin que la app se entere.
+///
+/// Usado tanto en el alta de un mural nuevo como en la edición con foto
+/// nueva, para que ambos flujos generen nombres con la misma regla.
+String nombreArchivoDesdeTitulo(String titulo) {
+  final String tituloLimpio = titulo.trim().replaceAll(
+    RegExp(r'[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ_-]'),
+    '_',
+  );
+  final int timestamp = DateTime.now().millisecondsSinceEpoch;
+  return '${timestamp}_$tituloLimpio.jpg';
+}
+
 /// Intenta borrar una foto del bucket "murales" a partir de su URL
 /// pública. Es un intento best-effort: si falla, no interrumpe el flujo
 /// principal (en el peor caso queda un archivo huérfano recuperable

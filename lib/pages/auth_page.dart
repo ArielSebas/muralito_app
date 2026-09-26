@@ -21,18 +21,50 @@ class _AuthPageState extends State<AuthPage> {
   final _passController = TextEditingController();
   final _confirmPassController = TextEditingController();
 
+  // DT4-01: control manual del borde rojo del campo "Contraseña" durante
+  // el registro. Se limpia apenas el usuario escribe y solo reaparece al
+  // perder foco o al intentar enviar. No aplica en login (ahí no se
+  // vuelve a exigir la política de M1).
+  final FocusNode _passFocusNode = FocusNode();
+  bool _mostrarErrorPassword = false;
+
   @override
   void initState() {
     super.initState();
     _esRegistro = widget.empezarEnRegistro;
 
     _passController.addListener(_actualizarValidacionContrasena);
+    _passController.addListener(_ocultarErrorPasswordAlEscribir);
     _confirmPassController.addListener(_actualizarValidacionContrasena);
+    _passFocusNode.addListener(_alCambiarFocoPassword);
   }
 
   void _actualizarValidacionContrasena() {
     if (mounted) {
       setState(() {});
+    }
+  }
+
+  /// DT4-01: apenas el usuario toca una tecla, se oculta el error visual
+  /// aunque la contraseña siga sin cumplir los requisitos. El checklist
+  /// ([_requisitosContrasena]) sigue mostrando el estado real; esto solo
+  /// controla el borde rojo del campo.
+  void _ocultarErrorPasswordAlEscribir() {
+    if (_mostrarErrorPassword && mounted) {
+      setState(() => _mostrarErrorPassword = false);
+    }
+  }
+
+  /// DT4-01: al perder el foco durante el registro, si quedó texto y
+  /// sigue sin cumplir los requisitos, recién ahí se muestra el borde
+  /// rojo. En login no aplica: la contraseña no se vuelve a validar
+  /// contra la política de M1.
+  void _alCambiarFocoPassword() {
+    if (_passFocusNode.hasFocus || !mounted) return;
+    final bool debeMostrarError =
+        _esRegistro && _passController.text.isNotEmpty && !_contrasenaEsSegura;
+    if (debeMostrarError != _mostrarErrorPassword) {
+      setState(() => _mostrarErrorPassword = debeMostrarError);
     }
   }
 
@@ -67,7 +99,10 @@ class _AuthPageState extends State<AuthPage> {
   @override
   void dispose() {
     _passController.removeListener(_actualizarValidacionContrasena);
+    _passController.removeListener(_ocultarErrorPasswordAlEscribir);
     _confirmPassController.removeListener(_actualizarValidacionContrasena);
+    _passFocusNode.removeListener(_alCambiarFocoPassword);
+    _passFocusNode.dispose();
 
     _emailController.dispose();
     _passController.dispose();
@@ -115,6 +150,7 @@ class _AuthPageState extends State<AuthPage> {
 
     if (_esRegistro) {
       if (_validarContrasenaRegistro(_passController.text) != null) {
+        setState(() => _mostrarErrorPassword = true);
         mostrarSnackBar(
           context,
           '❌ Revisa los requisitos de contraseña.',
@@ -305,17 +341,22 @@ class _AuthPageState extends State<AuthPage> {
                       const SizedBox(height: 16),
                       TextFormField(
                         controller: _passController,
+                        focusNode: _passFocusNode,
                         obscureText: true,
-                        // DT4-01: no AutovalidateMode.onUserInteraction.
-                        // Ese modo deja el campo en error (borde rojo +
-                        // "Revisa los requisitos") en cuanto hay texto
-                        // débil o el campo queda vacío. La validación en
-                        // vivo vive en [_requisitosContrasena]; el campo
-                        // no se pinta de error mientras se escribe.
+                        // DT4-01: el borde rojo se controla manualmente vía
+                        // [_mostrarErrorPassword] (errorText), no por
+                        // autovalidate. Se limpia al escribir y reaparece
+                        // al perder foco o al enviar. En login nunca se
+                        // activa (ahí no se revalida la política de M1);
+                        // la validación en vivo del registro sigue
+                        // viviendo en [_requisitosContrasena].
                         autovalidateMode: AutovalidateMode.disabled,
                         decoration: InputDecoration(
                           labelText: 'Contraseña',
                           prefixIcon: const Icon(Icons.lock_outline),
+                          errorText: _mostrarErrorPassword
+                              ? 'Revisa los requisitos de contraseña'
+                              : null,
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
@@ -458,7 +499,10 @@ class _AuthPageState extends State<AuthPage> {
                     child: const Text('¿Olvidaste tu contraseña?'),
                   ),
                 TextButton(
-                  onPressed: () => setState(() => _esRegistro = !_esRegistro),
+                  onPressed: () => setState(() {
+                    _esRegistro = !_esRegistro;
+                    _mostrarErrorPassword = false;
+                  }),
                   child: Text(
                     _esRegistro
                         ? '¿Ya tienes cuenta? Inicia sesión'

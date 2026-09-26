@@ -19,6 +19,7 @@ import '../widgets/formulario_mural_modal.dart';
 import '../widgets/editar_mural_modal.dart';
 import '../widgets/editar_perfil_modal.dart';
 import '../widgets/ajustar_ubicacion_page.dart';
+import '../widgets/onboarding_ubicacion_dialog.dart';
 import 'auth_page.dart';
 
 class MapaPrincipalPage extends StatefulWidget {
@@ -45,6 +46,10 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
 
   Future<void> _centrarEnMiUbicacion() async {
     if (_buscandoUbicacion) return;
+
+    // M3: onboarding de ubicación, solo la primera vez en la vida de la app.
+    await mostrarOnboardingUbicacionSiCorresponde(context);
+    if (!mounted) return;
 
     setState(() => _buscandoUbicacion = true);
 
@@ -682,8 +687,7 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
             throw Exception('No se pudo comprimir la imagen');
           }
 
-          final String nombreArchivo =
-              '${DateTime.now().millisecondsSinceEpoch}_${titulo.replaceAll(' ', '_')}.jpg';
+          final String nombreArchivo = nombreArchivoDesdeTitulo(titulo);
 
           await supabase.storage
               .from('murales')
@@ -1168,6 +1172,12 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
 
     if (!mounted) return;
 
+    // M3: onboarding de ubicación, solo la primera vez en la vida de la
+    // app — antes de que AjustarUbicacionPage intente el GPS y dispare
+    // el permiso nativo de Android.
+    await mostrarOnboardingUbicacionSiCorresponde(context);
+    if (!mounted) return;
+
     // Centro inicial inmediato (el mapa de pin intenta GPS al abrirse).
     LatLng fallback;
     try {
@@ -1309,14 +1319,7 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
           }
 
           // 2. Generar nombre único para Storage
-          final timestamp = DateTime.now().millisecondsSinceEpoch;
-
-          final tituloLimpio = titulo.trim().replaceAll(
-            RegExp(r'[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ_-]'),
-            '_',
-          );
-
-          final nombreArchivo = '${timestamp}_$tituloLimpio.jpg';
+          final nombreArchivo = nombreArchivoDesdeTitulo(titulo);
 
           // 3. Subir fotografía a Storage
           await supabase.storage
@@ -1483,7 +1486,7 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
             children: [
               TileLayer(
                 urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'com.example.muralito_app',
+                userAgentPackageName: 'com.muralitoapp.app',
                 maxNativeZoom: 19,
                 keepBuffer: 1,
                 panBuffer: 1,

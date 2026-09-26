@@ -227,7 +227,7 @@ class _AjustarUbicacionPageState extends State<AjustarUbicacionPage> {
             children: [
               TileLayer(
                 urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'com.example.muralito_app',
+                userAgentPackageName: 'com.muralitoapp.app',
                 maxNativeZoom: 19,
                 keepBuffer: 1,
                 panBuffer: 1,

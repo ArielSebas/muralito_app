@@ -45,16 +45,47 @@ class _RecuperarPasswordPageState extends State<RecuperarPasswordPage> {
   Timer? _timerReenvio;
   int _segundosParaReenviar = 0;
 
+  // DT4-01: control manual del borde rojo del campo "Nueva contraseña".
+  // Se limpia apenas el usuario escribe y solo reaparece al perder foco
+  // o al intentar enviar el formulario con una contraseña inválida.
+  final FocusNode _passFocusNode = FocusNode();
+  bool _mostrarErrorPassword = false;
+
   @override
   void initState() {
     super.initState();
     _emailController = TextEditingController(text: widget.emailInicial ?? '');
     _passController.addListener(_actualizarValidacionContrasena);
+    _passController.addListener(_ocultarErrorPasswordAlEscribir);
     _confirmPassController.addListener(_actualizarValidacionContrasena);
+    _passFocusNode.addListener(_alCambiarFocoPassword);
   }
 
   void _actualizarValidacionContrasena() {
     if (mounted) setState(() {});
+  }
+
+  /// DT4-01: apenas el usuario toca una tecla, se oculta el error visual
+  /// aunque la contraseña siga sin cumplir los requisitos. El checklist
+  /// de requisitos ([_requisitosContrasena]) sigue mostrando el estado
+  /// real; esto solo controla el borde rojo del campo.
+  void _ocultarErrorPasswordAlEscribir() {
+    if (_mostrarErrorPassword && mounted) {
+      setState(() => _mostrarErrorPassword = false);
+    }
+  }
+
+  /// DT4-01: al perder el foco, si quedó texto y sigue sin cumplir los
+  /// requisitos, recién ahí se muestra el borde rojo. Un campo vacío no
+  /// se marca como error al perder foco (el usuario puede no querer
+  /// cambiar la contraseña todavía).
+  void _alCambiarFocoPassword() {
+    if (_passFocusNode.hasFocus || !mounted) return;
+    final bool debeMostrarError =
+        _passController.text.isNotEmpty && !_contrasenaEsSegura;
+    if (debeMostrarError != _mostrarErrorPassword) {
+      setState(() => _mostrarErrorPassword = debeMostrarError);
+    }
   }
 
   /// Inicia (o reinicia) el conteo para poder reenviar el código.
@@ -109,7 +140,10 @@ class _RecuperarPasswordPageState extends State<RecuperarPasswordPage> {
   void dispose() {
     _timerReenvio?.cancel();
     _passController.removeListener(_actualizarValidacionContrasena);
+    _passController.removeListener(_ocultarErrorPasswordAlEscribir);
     _confirmPassController.removeListener(_actualizarValidacionContrasena);
+    _passFocusNode.removeListener(_alCambiarFocoPassword);
+    _passFocusNode.dispose();
     _emailController.dispose();
     _codigoController.dispose();
     _passController.dispose();
@@ -161,6 +195,7 @@ class _RecuperarPasswordPageState extends State<RecuperarPasswordPage> {
     if (!_formKeyCodigo.currentState!.validate()) return;
 
     if (!_contrasenaEsSegura) {
+      setState(() => _mostrarErrorPassword = true);
       mostrarSnackBar(
         context,
         '❌ Revisa los requisitos de contraseña.',
@@ -376,24 +411,25 @@ class _RecuperarPasswordPageState extends State<RecuperarPasswordPage> {
           const SizedBox(height: 16),
           TextFormField(
             controller: _passController,
+            focusNode: _passFocusNode,
             obscureText: true,
-            autovalidateMode: AutovalidateMode.onUserInteraction,
+            // DT4-01: el borde rojo se controla manualmente vía
+            // [_mostrarErrorPassword] (errorText), no por autovalidate.
+            // Se limpia al escribir y reaparece al perder foco o enviar.
+            autovalidateMode: AutovalidateMode.disabled,
             decoration: InputDecoration(
               labelText: 'Nueva contraseña',
               prefixIcon: const Icon(Icons.lock_outline),
+              errorText: _mostrarErrorPassword
+                  ? 'Revisa los requisitos de contraseña'
+                  : null,
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
               ),
               filled: true,
               fillColor: Colors.grey[50],
             ),
-            validator: (v) {
-              if (v == null || v.isEmpty) return null;
-              if (!_contrasenaEsSegura) {
-                return 'Revisa los requisitos de contraseña';
-              }
-              return null;
-            },
+            validator: (_) => null,
           ),
           if (_passController.text.isNotEmpty) _requisitosContrasena(),
           const SizedBox(height: 16),
