@@ -29,11 +29,53 @@ class MapaPrincipalPage extends StatefulWidget {
   State<MapaPrincipalPage> createState() => _MapaPrincipalPageState();
 }
 
+enum _TipoAviso { exito, error, info }
+
+class _AvisoUI {
+  final String mensaje;
+  final _TipoAviso tipo;
+  final String? accionLabel;
+  final VoidCallback? onAccion;
+
+  const _AvisoUI({
+    required this.mensaje,
+    required this.tipo,
+    this.accionLabel,
+    this.onAccion,
+  });
+
+  Color get colorFondo {
+    switch (tipo) {
+      case _TipoAviso.exito:
+        return Colors.green[700]!;
+      case _TipoAviso.error:
+        return Colors.red[700]!;
+      case _TipoAviso.info:
+        return Colors.deepPurple[700]!;
+    }
+  }
+
+  IconData get icono {
+    switch (tipo) {
+      case _TipoAviso.exito:
+        return Icons.check_circle;
+      case _TipoAviso.error:
+        return Icons.error_outline;
+      case _TipoAviso.info:
+        return Icons.info_outline;
+    }
+  }
+}
+
 class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
   final MapController _mapController = MapController();
   final UbicacionService _ubicacionService = const UbicacionService();
   bool _buscandoUbicacion = false;
-  Timer? _avisoUbicacionTimer;
+
+  // ── VARIABLES UNIFICADAS DE AVISO ──
+  _AvisoUI? _avisoActivo;
+  Timer? _avisoTimer;
+
   final List<Mural> _murales = [];
   Perfil? _perfilActual;
   bool _cargandoMurales = true;
@@ -42,7 +84,6 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
   StreamSubscription<AuthState>? _authSub;
 
   bool get _haySesion => supabase.auth.currentUser != null;
-
 
   Future<void> _centrarEnMiUbicacion() async {
     if (_buscandoUbicacion) return;
@@ -100,9 +141,7 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
             );
             break;
           case EstadoUbicacion.sinSenal:
-            _mostrarAvisoUbicacion(
-              'No se pudo obtener tu ubicación actual.',
-            );
+            _mostrarAvisoUbicacion('No se pudo obtener tu ubicación actual.');
             break;
           case EstadoUbicacion.listo:
             break;
@@ -118,49 +157,44 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
     }
   }
 
+  void _mostrarAviso(
+    String mensaje, {
+    _TipoAviso tipo = _TipoAviso.info,
+    String? accionLabel,
+    VoidCallback? onAccion,
+    Duration duracion = const Duration(seconds: 3),
+  }) {
+    _avisoTimer?.cancel();
+    _avisoTimer = null;
+
+    setState(() {
+      _avisoActivo = _AvisoUI(
+        mensaje: mensaje,
+        tipo: tipo,
+        accionLabel: accionLabel,
+        onAccion: onAccion,
+      );
+    });
+
+    _avisoTimer = Timer(duracion, () {
+      if (mounted) {
+        setState(() => _avisoActivo = null);
+        _avisoTimer = null;
+      }
+    });
+  }
 
   void _mostrarAvisoUbicacion(
     String mensaje, {
     SnackBarAction? accion,
     bool isError = true,
   }) {
-    _avisoUbicacionTimer?.cancel();
-    _avisoUbicacionTimer = null;
-
-    final messenger = ScaffoldMessenger.of(context);
-
-    // Evita que varios toques acumulen avisos.
-    messenger.removeCurrentSnackBar();
-
-    final SnackBarAction? accionEnvuelta = accion == null
-        ? null
-        : SnackBarAction(
-            label: accion.label,
-            onPressed: () {
-              _avisoUbicacionTimer?.cancel();
-              _avisoUbicacionTimer = null;
-              accion.onPressed();
-            },
-          );
-
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text(mensaje),
-        backgroundColor: isError ? Colors.red[700] : null,
-        duration: const Duration(seconds: 3),
-        action: accionEnvuelta,
-      ),
+    _mostrarAviso(
+      mensaje,
+      tipo: isError ? _TipoAviso.error : _TipoAviso.info,
+      accionLabel: accion?.label,
+      onAccion: accion?.onPressed,
     );
-
-    // El cierre se controla explícitamente para que el aviso no quede
-    // persistente aunque el SnackBar tenga una acción.
-    _avisoUbicacionTimer = Timer(const Duration(seconds: 3), () {
-      if (!mounted) return;
-      messenger.hideCurrentSnackBar(
-        reason: SnackBarClosedReason.timeout,
-      );
-      _avisoUbicacionTimer = null;
-    });
   }
 
   @override
@@ -178,7 +212,7 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
 
   @override
   void dispose() {
-    _avisoUbicacionTimer?.cancel();
+    _avisoTimer?.cancel();
     _authSub?.cancel();
     super.dispose();
   }
@@ -247,10 +281,13 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
 
         await _cargarPerfilActual();
         if (!mounted) return;
-        mostrarSnackBar(context, '✅ Perfil actualizado correctamente.');
+        _mostrarAviso(
+          'Perfil actualizado correctamente.',
+          tipo: _TipoAviso.exito,
+        );
       } catch (e) {
         if (!mounted) return;
-        mostrarSnackBar(context, '❌ ${mensajeErrorAmigable(e)}', isError: true);
+        _mostrarAviso(mensajeErrorAmigable(e), tipo: _TipoAviso.error);
       }
       return;
     }
@@ -612,10 +649,9 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
     // Protección adicional en la interfaz.
     // La seguridad real sigue estando en RLS.
     if (usuarioActual == null || mural.userId != usuarioActual.id) {
-      mostrarSnackBar(
-        context,
+      _mostrarAviso(
         'No tienes permiso para editar este mural.',
-        isError: true,
+        tipo: _TipoAviso.error,
       );
       return;
     }
@@ -652,21 +688,19 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
 
         await _cargarMurales();
         if (!mounted) return;
-        mostrarSnackBar(
-          context,
-          '✅ Mural "$titulo" actualizado correctamente.',
+        _mostrarAviso(
+          'Mural "$titulo" actualizado correctamente.',
+          tipo: _TipoAviso.exito,
         );
       } catch (e) {
         if (!mounted) return;
-        mostrarSnackBar(context, '❌ ${mensajeErrorAmigable(e)}', isError: true);
+        _mostrarAviso(mensajeErrorAmigable(e), tipo: _TipoAviso.error);
       }
       return;
     }
 
     // ── Caso con foto nueva: comprimir → subir con nombre nuevo →
     // actualizar → solo si todo salió bien, borrar la foto anterior.
-    // El diálogo de carga se cierra exactamente una vez (DT13, vía
-    // conDialogoCarga), incluso si el widget se desmonta a mitad. ──
     try {
       await conDialogoCarga(
         context,
@@ -712,9 +746,6 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
                 .eq('id', mural.id!)
                 .eq('user_id', usuarioActual.id);
           } catch (e) {
-            // El UPDATE falló después de subir la foto nueva: borra la
-            // foto recién subida para no dejar un huérfano; el mural
-            // conserva su foto original.
             await borrarFotoDeStorage(nuevaFotoUrl);
             rethrow;
           }
@@ -728,13 +759,13 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
 
       await _cargarMurales();
       if (!mounted) return;
-      mostrarSnackBar(
-        context,
-        '✅ Mural "$titulo" actualizado correctamente.',
+      _mostrarAviso(
+        'Mural "$titulo" actualizado correctamente.',
+        tipo: _TipoAviso.exito,
       );
     } catch (e) {
       if (!mounted) return;
-      mostrarSnackBar(context, '❌ ${mensajeErrorAmigable(e)}', isError: true);
+      _mostrarAviso(mensajeErrorAmigable(e), tipo: _TipoAviso.error);
     }
   }
 
@@ -744,10 +775,9 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
     // Protección adicional en la interfaz.
     // La seguridad real sigue estando en RLS.
     if (usuarioActual == null || mural.userId != usuarioActual.id) {
-      mostrarSnackBar(
-        context,
+      _mostrarAviso(
         'No tienes permiso para eliminar este mural.',
-        isError: true,
+        tipo: _TipoAviso.error,
       );
       return;
     }
@@ -801,23 +831,22 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
 
       if (!mounted) return;
 
-      mostrarSnackBar(
-        context,
-        '✅ Mural "${mural.titulo}" eliminado correctamente.',
+      _mostrarAviso(
+        'Mural "${mural.titulo}" eliminado correctamente.',
+        tipo: _TipoAviso.exito,
       );
     } on PostgrestException catch (_) {
       // DT4: el detalle técnico queda en consola (mensajeErrorAmigable
       // también lo imprime); al usuario se le muestra solo un mensaje
       // amigable en español.
       if (!mounted) return;
-      mostrarSnackBar(
-        context,
-        '❌ No se pudo eliminar el mural. Inténtalo de nuevo.',
-        isError: true,
+      _mostrarAviso(
+        'No se pudo eliminar el mural. Inténtalo de nuevo.',
+        tipo: _TipoAviso.error,
       );
     } catch (e) {
       if (!mounted) return;
-      mostrarSnackBar(context, '❌ ${mensajeErrorAmigable(e)}', isError: true);
+      _mostrarAviso(mensajeErrorAmigable(e), tipo: _TipoAviso.error);
     }
   }
 
@@ -1128,28 +1157,89 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
   }
 
   Future<void> _abrirComoLlegar(double lat, double lng) async {
-  final uri = Uri.parse(
-    'https://www.openstreetmap.org/?mlat=$lat&mlon=$lng#map=18/$lat/$lng',
-  );
+    final uri = Uri.parse(
+      'https://www.openstreetmap.org/?mlat=$lat&mlon=$lng#map=18/$lat/$lng',
+    );
 
-  final ok = await launchUrl(
-    uri,
-    mode: LaunchMode.externalApplication,
-  );
+    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
 
-  if (!mounted) return;
+    if (!mounted) return;
 
-  if (!ok) {
-    mostrarSnackBar(
-      context,
-      'No se pudo abrir el mapa. Coordenadas: '
-      '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}',
-      isError: true,
+    if (!ok) {
+      _mostrarAviso(
+        'No se pudo abrir el mapa. Coordenadas: '
+        '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}',
+        tipo: _TipoAviso.error,
+      );
+    }
+  }
+
+  /// Despliega un modal inferior para que el usuario elija si desea capturar
+  /// una fotografía con la cámara o seleccionarla desde la galería.
+  Future<ImageSource?> _seleccionarOrigenFoto() {
+    return showModalBottomSheet<ImageSource>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Indicador visual superior (handle)
+                Container(
+                  width: 36,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Fotografía del mural',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                ListTile(
+                  leading: const Icon(
+                    Icons.photo_camera_outlined,
+                    color: Colors.deepPurple,
+                  ),
+                  title: const Text('Tomar fotografía'),
+                  onTap: () => Navigator.of(ctx).pop(ImageSource.camera),
+                ),
+                ListTile(
+                  leading: const Icon(
+                    Icons.photo_library_outlined,
+                    color: Colors.deepPurple,
+                  ),
+                  title: const Text('Elegir de la galería'),
+                  onTap: () => Navigator.of(ctx).pop(ImageSource.gallery),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
-}
 
-  /// Flujo M5: cámara → pin (GPS si se puede, si no el mapa) → formulario → subida.
+  /// Flujo M5: selección de foto (cámara o galería) → pin (GPS si se puede,
+  /// si no el mapa) → formulario → subida.
   ///
   /// El pin **solo** se ajusta al registrar. Editar la ubicación de un mural
   /// ya publicado queda fuera de este ticket (riesgo de coordenadas falsas).
@@ -1160,17 +1250,18 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
       return;
     }
 
-    // 1. Cámara primero: si el GPS falla, la foto no se tira (M5).
+    // 1. Selección de origen: el usuario decide si toma foto o usa la galería.
+    final ImageSource? origen = await _seleccionarOrigenFoto();
+    if (origen == null || !mounted) return;
+
     final XFile? foto = await ImagePicker().pickImage(
-      source: ImageSource.camera,
+      source: origen,
       maxWidth: 1920,
       maxHeight: 1920,
       imageQuality: 85,
     );
 
-    if (foto == null) return;
-
-    if (!mounted) return;
+    if (foto == null || !mounted) return;
 
     // M3: onboarding de ubicación, solo la primera vez en la vida de la
     // app — antes de que AjustarUbicacionPage intente el GPS y dispare
@@ -1288,10 +1379,9 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
 
     if (usuario == null) {
       if (mounted) {
-        mostrarSnackBar(
-          context,
+        _mostrarAviso(
           'Debes iniciar sesión para subir un mural.',
-          isError: true,
+          tipo: _TipoAviso.error,
         );
       }
       return;
@@ -1369,13 +1459,13 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
       );
     } catch (error) {
       if (!mounted) return;
-      mostrarSnackBar(context, mensajeErrorAmigable(error), isError: true);
+      _mostrarAviso(mensajeErrorAmigable(error), tipo: _TipoAviso.error);
       return;
     }
 
     if (!mounted) return;
 
-    mostrarSnackBar(context, '✅ Mural guardado correctamente.');
+    _mostrarAviso('Mural guardado correctamente.', tipo: _TipoAviso.exito);
 
     // Recargar murales
     await _cargarMurales();
@@ -1452,9 +1542,9 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
               onPressed: () async {
                 await supabase.auth.signOut();
                 if (context.mounted) {
-                  mostrarSnackBar(
-                    context,
+                  _mostrarAviso(
                     'Sesión cerrada. Sigues viendo el mapa.',
+                    tipo: _TipoAviso.info,
                   );
                 }
               },
@@ -1492,8 +1582,88 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
                 panBuffer: 1,
               ),
               MarkerLayer(markers: _buildMarkers()),
+              // Atribución oficial de OSM sin prefijo flutter_map
+              Align(
+                alignment: Alignment.bottomLeft,
+                child: ColoredBox(
+                  color: const Color(0xCCFFFFFF),
+                  child: InkWell(
+                    onTap: () => launchUrl(
+                      Uri.parse('https://www.openstreetmap.org/copyright'),
+                      mode: LaunchMode.externalApplication,
+                    ),
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                      child: Text(
+                        '© Colaboradores de OpenStreetMap',
+                        style: TextStyle(fontSize: 11, color: Colors.black87),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             ],
           ),
+
+          // Toast superior unificado (Éxito, Error o Información)
+          if (_avisoActivo != null)
+            Positioned(
+              top: 12,
+              left: 16,
+              right: 16,
+              child: Card(
+                elevation: 4,
+                color: _avisoActivo!.colorFondo,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(_avisoActivo!.icono, color: Colors.white, size: 20),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          _avisoActivo!.mensaje,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                      if (_avisoActivo!.accionLabel != null &&
+                          _avisoActivo!.onAccion != null) ...[
+                        const SizedBox(width: 6),
+                        TextButton(
+                          onPressed: () {
+                            final accion = _avisoActivo!.onAccion;
+                            setState(() => _avisoActivo = null);
+                            accion?.call();
+                          },
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.amberAccent,
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            visualDensity: VisualDensity.compact,
+                          ),
+                          child: Text(
+                            _avisoActivo!.accionLabel!,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
 
           if (_cargandoMurales)
             Container(
@@ -1545,6 +1715,7 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
             ),
         ],
       ),
+      // Botones anclados a su posición estándar inferior
       floatingActionButton: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.end,

@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:latlong2/latlong.dart';
 
 import '../services/ubicacion_service.dart';
-import 'package:latlong2/latlong.dart';
+
 
 /// M5 — confirmar o ajustar el pin al **registrar** un mural.
 ///
@@ -231,6 +233,28 @@ class _AjustarUbicacionPageState extends State<AjustarUbicacionPage> {
                 maxNativeZoom: 19,
                 keepBuffer: 1,
                 panBuffer: 1,
+              ),
+              Align(
+                alignment: Alignment.bottomLeft,
+                child: ColoredBox(
+                  color: const Color(0xCCFFFFFF),
+                  child: InkWell(
+                    onTap: () => launchUrl(
+                      Uri.parse('https://www.openstreetmap.org/copyright'),
+                      mode: LaunchMode.externalApplication,
+                    ),
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                      child: Text(
+                        '© Colaboradores de OpenStreetMap',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.black87,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ],
           ),
