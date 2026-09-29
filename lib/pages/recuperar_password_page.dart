@@ -51,6 +51,12 @@ class _RecuperarPasswordPageState extends State<RecuperarPasswordPage> {
   final FocusNode _passFocusNode = FocusNode();
   bool _mostrarErrorPassword = false;
 
+  // DT4-01: control manual del borde rojo del campo "Correo electrónico".
+  // Se limpia apenas el usuario escribe y solo reaparece al perder foco
+  // o al intentar enviar el formulario.
+  final FocusNode _emailFocusNode = FocusNode();
+  bool _mostrarErrorEmail = false;
+
   @override
   void initState() {
     super.initState();
@@ -59,6 +65,10 @@ class _RecuperarPasswordPageState extends State<RecuperarPasswordPage> {
     _passController.addListener(_ocultarErrorPasswordAlEscribir);
     _confirmPassController.addListener(_actualizarValidacionContrasena);
     _passFocusNode.addListener(_alCambiarFocoPassword);
+
+    // DT4-01: listeners para el campo de email
+    _emailController.addListener(_ocultarErrorEmailAlEscribir);
+    _emailFocusNode.addListener(_alCambiarFocoEmail);
   }
 
   void _actualizarValidacionContrasena() {
@@ -75,6 +85,14 @@ class _RecuperarPasswordPageState extends State<RecuperarPasswordPage> {
     }
   }
 
+  /// DT4-01: apenas el usuario toca una tecla en el campo de email,
+  /// se oculta el error visual aunque el correo siga siendo inválido.
+  void _ocultarErrorEmailAlEscribir() {
+    if (_mostrarErrorEmail && mounted) {
+      setState(() => _mostrarErrorEmail = false);
+    }
+  }
+
   /// DT4-01: al perder el foco, si quedó texto y sigue sin cumplir los
   /// requisitos, recién ahí se muestra el borde rojo. Un campo vacío no
   /// se marca como error al perder foco (el usuario puede no querer
@@ -86,6 +104,17 @@ class _RecuperarPasswordPageState extends State<RecuperarPasswordPage> {
     if (debeMostrarError != _mostrarErrorPassword) {
       setState(() => _mostrarErrorPassword = debeMostrarError);
     }
+
+  /// DT4-01: al perder el foco en el campo de email, si el correo
+  /// sigue siendo inválido, se muestra el error visual.
+  void _alCambiarFocoEmail() {
+    if (_emailFocusNode.hasFocus || !mounted) return;
+    final email = _emailController.text.trim();
+    final bool debeMostrarError = email.isNotEmpty && !email.contains('@');
+    if (debeMostrarError != _mostrarErrorEmail) {
+      setState(() => _mostrarErrorEmail = debeMostrarError);
+    }
+  }
   }
 
   /// Inicia (o reinicia) el conteo para poder reenviar el código.
@@ -144,6 +173,10 @@ class _RecuperarPasswordPageState extends State<RecuperarPasswordPage> {
     _confirmPassController.removeListener(_actualizarValidacionContrasena);
     _passFocusNode.removeListener(_alCambiarFocoPassword);
     _passFocusNode.dispose();
+    // DT4-01: limpieza de listeners para email
+    _emailController.removeListener(_ocultarErrorEmailAlEscribir);
+    _emailFocusNode.removeListener(_alCambiarFocoEmail);
+    _emailFocusNode.dispose();
     _emailController.dispose();
     _codigoController.dispose();
     _passController.dispose();
@@ -152,6 +185,12 @@ class _RecuperarPasswordPageState extends State<RecuperarPasswordPage> {
   }
 
   Future<void> _enviarCodigo({bool validarCorreo = true}) async {
+    // DT4-01: forzar validaci\u00f3n visual antes de enviar
+    final email = _emailController.text.trim();
+    setState(() {
+      _mostrarErrorEmail = email.isEmpty || !email.contains('@');
+    });
+
     if (validarCorreo && !_formKeyCorreo.currentState!.validate()) return;
 
     setState(() => _cargando = true);
@@ -331,7 +370,12 @@ class _RecuperarPasswordPageState extends State<RecuperarPasswordPage> {
           const SizedBox(height: 24),
           TextFormField(
             controller: _emailController,
+            focusNode: _emailFocusNode,
             keyboardType: TextInputType.emailAddress,
+            // DT4-01: el borde rojo se controla manualmente vía
+            // [_mostrarErrorEmail] (errorText), no por autovalidate.
+            // Se limpia al escribir y reaparece al perder foco o enviar.
+            autovalidateMode: AutovalidateMode.disabled,
             decoration: InputDecoration(
               labelText: 'Correo electrónico',
               prefixIcon: const Icon(Icons.email_outlined),
@@ -340,6 +384,11 @@ class _RecuperarPasswordPageState extends State<RecuperarPasswordPage> {
               ),
               filled: true,
               fillColor: Colors.grey[50],
+              errorText: _mostrarErrorEmail
+                  ? _emailController.text.trim().isEmpty
+                      ? 'Ingresa tu correo'
+                      : 'Correo inválido'
+                  : null,
             ),
             validator: (v) {
               if (v == null || v.trim().isEmpty) return 'Ingresa tu correo';
