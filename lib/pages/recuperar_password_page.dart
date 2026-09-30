@@ -51,6 +51,9 @@ class _RecuperarPasswordPageState extends State<RecuperarPasswordPage> {
   final FocusNode _passFocusNode = FocusNode();
   bool _mostrarErrorPassword = false;
 
+  final FocusNode _emailFocusNode = FocusNode();
+  bool _mostrarErrorEmail = false;
+
   @override
   void initState() {
     super.initState();
@@ -59,26 +62,20 @@ class _RecuperarPasswordPageState extends State<RecuperarPasswordPage> {
     _passController.addListener(_ocultarErrorPasswordAlEscribir);
     _confirmPassController.addListener(_actualizarValidacionContrasena);
     _passFocusNode.addListener(_alCambiarFocoPassword);
+
+    // DT4-01: onChanged y onTapOutside manejan el email (ya no se usan listeners)
   }
 
   void _actualizarValidacionContrasena() {
     if (mounted) setState(() {});
   }
 
-  /// DT4-01: apenas el usuario toca una tecla, se oculta el error visual
-  /// aunque la contraseña siga sin cumplir los requisitos. El checklist
-  /// de requisitos ([_requisitosContrasena]) sigue mostrando el estado
-  /// real; esto solo controla el borde rojo del campo.
   void _ocultarErrorPasswordAlEscribir() {
     if (_mostrarErrorPassword && mounted) {
       setState(() => _mostrarErrorPassword = false);
     }
   }
 
-  /// DT4-01: al perder el foco, si quedó texto y sigue sin cumplir los
-  /// requisitos, recién ahí se muestra el borde rojo. Un campo vacío no
-  /// se marca como error al perder foco (el usuario puede no querer
-  /// cambiar la contraseña todavía).
   void _alCambiarFocoPassword() {
     if (_passFocusNode.hasFocus || !mounted) return;
     final bool debeMostrarError =
@@ -144,6 +141,7 @@ class _RecuperarPasswordPageState extends State<RecuperarPasswordPage> {
     _confirmPassController.removeListener(_actualizarValidacionContrasena);
     _passFocusNode.removeListener(_alCambiarFocoPassword);
     _passFocusNode.dispose();
+
     _emailController.dispose();
     _codigoController.dispose();
     _passController.dispose();
@@ -152,6 +150,14 @@ class _RecuperarPasswordPageState extends State<RecuperarPasswordPage> {
   }
 
   Future<void> _enviarCodigo({bool validarCorreo = true}) async {
+    final email = _emailController.text.trim();
+    setState(() {
+      _mostrarErrorEmail = email.isEmpty || !email.contains('@');
+    });
+
+    // ✅ Validación manual del email (BLOQUEA el envío si es inválido)
+    if (email.isEmpty || !email.contains('@')) return;
+
     if (validarCorreo && !_formKeyCorreo.currentState!.validate()) return;
 
     setState(() => _cargando = true);
@@ -178,11 +184,7 @@ class _RecuperarPasswordPageState extends State<RecuperarPasswordPage> {
       }
     } catch (e) {
       if (mounted) {
-        mostrarSnackBar(
-          context,
-          '❌ ${mensajeErrorAmigable(e)}',
-          isError: true,
-        );
+        mostrarSnackBar(context, '❌ ${mensajeErrorAmigable(e)}', isError: true);
       }
     } finally {
       if (mounted) {
@@ -238,11 +240,7 @@ class _RecuperarPasswordPageState extends State<RecuperarPasswordPage> {
       }
     } catch (e) {
       if (mounted) {
-        mostrarSnackBar(
-          context,
-          '❌ ${mensajeErrorAmigable(e)}',
-          isError: true,
-        );
+        mostrarSnackBar(context, '❌ ${mensajeErrorAmigable(e)}', isError: true);
       }
     } finally {
       if (mounted) setState(() => _cargando = false);
@@ -331,7 +329,24 @@ class _RecuperarPasswordPageState extends State<RecuperarPasswordPage> {
           const SizedBox(height: 24),
           TextFormField(
             controller: _emailController,
+            focusNode: _emailFocusNode,
             keyboardType: TextInputType.emailAddress,
+            autovalidateMode: AutovalidateMode.disabled,
+            onChanged: (value) {
+              // Ocultar error al escribir
+              if (_mostrarErrorEmail && mounted) {
+                setState(() => _mostrarErrorEmail = false);
+              }
+            },
+            onTapOutside: (event) {
+              // Mostrar error al perder foco si es inválido
+              final email = _emailController.text.trim();
+              if (mounted) {
+                setState(() {
+                  _mostrarErrorEmail = email.isEmpty || !email.contains('@');
+                });
+              }
+            },
             decoration: InputDecoration(
               labelText: 'Correo electrónico',
               prefixIcon: const Icon(Icons.email_outlined),
@@ -340,12 +355,8 @@ class _RecuperarPasswordPageState extends State<RecuperarPasswordPage> {
               ),
               filled: true,
               fillColor: Colors.grey[50],
+              errorText: _mostrarErrorEmail ? 'Correo inválido' : null,
             ),
-            validator: (v) {
-              if (v == null || v.trim().isEmpty) return 'Ingresa tu correo';
-              if (!v.contains('@')) return 'Correo inválido';
-              return null;
-            },
           ),
           const SizedBox(height: 28),
           SizedBox(

@@ -21,12 +21,11 @@ class _AuthPageState extends State<AuthPage> {
   final _passController = TextEditingController();
   final _confirmPassController = TextEditingController();
 
-  // DT4-01: control manual del borde rojo del campo "Contraseña" durante
-  // el registro. Se limpia apenas el usuario escribe y solo reaparece al
-  // perder foco o al intentar enviar. No aplica en login (ahí no se
-  // vuelve a exigir la política de M1).
+  // DT4-01: control manual del borde rojo para contraseña y email
   final FocusNode _passFocusNode = FocusNode();
   bool _mostrarErrorPassword = false;
+  final FocusNode _emailFocusNode = FocusNode();
+  bool _mostrarErrorEmail = false;
 
   @override
   void initState() {
@@ -45,20 +44,12 @@ class _AuthPageState extends State<AuthPage> {
     }
   }
 
-  /// DT4-01: apenas el usuario toca una tecla, se oculta el error visual
-  /// aunque la contraseña siga sin cumplir los requisitos. El checklist
-  /// ([_requisitosContrasena]) sigue mostrando el estado real; esto solo
-  /// controla el borde rojo del campo.
   void _ocultarErrorPasswordAlEscribir() {
     if (_mostrarErrorPassword && mounted) {
       setState(() => _mostrarErrorPassword = false);
     }
   }
 
-  /// DT4-01: al perder el foco durante el registro, si quedó texto y
-  /// sigue sin cumplir los requisitos, recién ahí se muestra el borde
-  /// rojo. En login no aplica: la contraseña no se vuelve a validar
-  /// contra la política de M1.
   void _alCambiarFocoPassword() {
     if (_passFocusNode.hasFocus || !mounted) return;
     final bool debeMostrarError =
@@ -107,7 +98,6 @@ class _AuthPageState extends State<AuthPage> {
     _emailController.dispose();
     _passController.dispose();
     _confirmPassController.dispose();
-
     super.dispose();
   }
 
@@ -146,6 +136,18 @@ class _AuthPageState extends State<AuthPage> {
   }
 
   Future<void> _enviar() async {
+    final email = _emailController.text.trim();
+    setState(() {
+      _mostrarErrorEmail = email.isEmpty || !email.contains('@');
+      if (_esRegistro) {
+        _mostrarErrorPassword =
+            _passController.text.isNotEmpty && !_contrasenaEsSegura;
+      }
+    });
+
+    // ✅ Validación manual del email (BLOQUEA el envío si es inválido)
+    if (email.isEmpty || !email.contains('@')) return;
+
     if (!_formKey.currentState!.validate()) return;
 
     if (_esRegistro) {
@@ -160,11 +162,7 @@ class _AuthPageState extends State<AuthPage> {
       }
 
       if (_confirmPassController.text.isEmpty) {
-        mostrarSnackBar(
-          context,
-          '❌ Confirma tu contraseña.',
-          isError: true,
-        );
+        mostrarSnackBar(context, '❌ Confirma tu contraseña.', isError: true);
         return;
       }
 
@@ -189,8 +187,7 @@ class _AuthPageState extends State<AuthPage> {
         if (mounted) {
           mostrarSnackBar(
             context,
-            '📧 Revisa tu correo para confirmar la cuenta. '
-            'Luego inicia sesión.',
+            '📧 Revisa tu correo para confirmar la cuenta. Luego inicia sesión.',
           );
           setState(() => _esRegistro = false);
         }
@@ -204,14 +201,8 @@ class _AuthPageState extends State<AuthPage> {
         }
       }
     } catch (e) {
-      // Los AuthException se traducen a español dentro de
-      // mensajeErrorAmigable (DT4): ningún mensaje crudo llega a la UI.
       if (mounted) {
-        mostrarSnackBar(
-          context,
-          '❌ ${mensajeErrorAmigable(e)}',
-          isError: true,
-        );
+        mostrarSnackBar(context, '❌ ${mensajeErrorAmigable(e)}', isError: true);
       }
     } finally {
       if (mounted) setState(() => _cargando = false);
@@ -320,7 +311,25 @@ class _AuthPageState extends State<AuthPage> {
                     children: [
                       TextFormField(
                         controller: _emailController,
+                        focusNode: _emailFocusNode,
                         keyboardType: TextInputType.emailAddress,
+                        autovalidateMode: AutovalidateMode.disabled,
+                        onChanged: (value) {
+                          // Ocultar error al escribir
+                          if (_mostrarErrorEmail && mounted) {
+                            setState(() => _mostrarErrorEmail = false);
+                          }
+                        },
+                        onTapOutside: (event) {
+                          // Mostrar error al perder foco si es inválido
+                          final email = _emailController.text.trim();
+                          if (mounted) {
+                            setState(() {
+                              _mostrarErrorEmail =
+                                  email.isEmpty || !email.contains('@');
+                            });
+                          }
+                        },
                         decoration: InputDecoration(
                           labelText: 'Correo electrónico',
                           prefixIcon: const Icon(Icons.email_outlined),
@@ -329,14 +338,10 @@ class _AuthPageState extends State<AuthPage> {
                           ),
                           filled: true,
                           fillColor: Colors.grey[50],
+                          errorText: _mostrarErrorEmail
+                              ? 'Correo inválido'
+                              : null,
                         ),
-                        validator: (v) {
-                          if (v == null || v.trim().isEmpty) {
-                            return 'Ingresa tu correo';
-                          }
-                          if (!v.contains('@')) return 'Correo inválido';
-                          return null;
-                        },
                       ),
                       const SizedBox(height: 16),
                       TextFormField(
