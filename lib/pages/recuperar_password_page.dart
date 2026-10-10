@@ -43,6 +43,7 @@ class _RecuperarPasswordPageState extends State<RecuperarPasswordPage> {
   bool _cargando = false;
 
   Timer? _timerReenvio;
+  Timer? _timerErrorEmail;
   int _segundosParaReenviar = 0;
 
   // DT4-01: control manual del borde rojo del campo "Nueva contraseña".
@@ -62,6 +63,7 @@ class _RecuperarPasswordPageState extends State<RecuperarPasswordPage> {
     _passController.addListener(_ocultarErrorPasswordAlEscribir);
     _confirmPassController.addListener(_actualizarValidacionContrasena);
     _passFocusNode.addListener(_alCambiarFocoPassword);
+    _emailFocusNode.addListener(_alCambiarFocoEmail);
 
     // DT4-01: onChanged y onTapOutside manejan el email (ya no se usan listeners)
   }
@@ -83,6 +85,27 @@ class _RecuperarPasswordPageState extends State<RecuperarPasswordPage> {
     if (debeMostrarError != _mostrarErrorPassword) {
       setState(() => _mostrarErrorPassword = debeMostrarError);
     }
+  }
+
+    void _alCambiarFocoEmail() {
+    if (_emailFocusNode.hasFocus || !mounted) return;
+    final email = _emailController.text.trim();
+    final debeMostrar = email.isEmpty || !email.contains('@');
+    if (debeMostrar != _mostrarErrorEmail) {
+      setState(() => _mostrarErrorEmail = debeMostrar);
+      if (debeMostrar) {
+        _iniciarTimerErrorEmail();
+      }
+    }
+  }
+
+  void _iniciarTimerErrorEmail() {
+    _timerErrorEmail?.cancel();
+    _timerErrorEmail = Timer(const Duration(seconds: 3), () {
+      if (mounted) {
+        setState(() => _mostrarErrorEmail = false);
+      }
+    });
   }
 
   /// Inicia (o reinicia) el conteo para poder reenviar el código.
@@ -142,6 +165,9 @@ class _RecuperarPasswordPageState extends State<RecuperarPasswordPage> {
     _passFocusNode.removeListener(_alCambiarFocoPassword);
     _passFocusNode.dispose();
 
+    _timerErrorEmail?.cancel();
+    _emailFocusNode.removeListener(_alCambiarFocoEmail);
+    _emailFocusNode.dispose();
     _emailController.dispose();
     _codigoController.dispose();
     _passController.dispose();
@@ -153,6 +179,9 @@ class _RecuperarPasswordPageState extends State<RecuperarPasswordPage> {
     final email = _emailController.text.trim();
     setState(() {
       _mostrarErrorEmail = email.isEmpty || !email.contains('@');
+      if (_mostrarErrorEmail) {
+        _iniciarTimerErrorEmail();
+      }
     });
 
     // ✅ Validación manual del email (BLOQUEA el envío si es inválido)

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/supabase_client.dart';
 import '../utils/helpers.dart';
 import 'recuperar_password_page.dart';
+import 'dart:async';
 
 class AuthPage extends StatefulWidget {
   final bool empezarEnRegistro;
@@ -27,6 +28,8 @@ class _AuthPageState extends State<AuthPage> {
   final FocusNode _emailFocusNode = FocusNode();
   bool _mostrarErrorEmail = false;
 
+  Timer? _timerErrorEmail;
+
   @override
   void initState() {
     super.initState();
@@ -36,6 +39,7 @@ class _AuthPageState extends State<AuthPage> {
     _passController.addListener(_ocultarErrorPasswordAlEscribir);
     _confirmPassController.addListener(_actualizarValidacionContrasena);
     _passFocusNode.addListener(_alCambiarFocoPassword);
+    _emailFocusNode.addListener(_alCambiarFocoEmail);
   }
 
   void _actualizarValidacionContrasena() {
@@ -57,6 +61,27 @@ class _AuthPageState extends State<AuthPage> {
     if (debeMostrarError != _mostrarErrorPassword) {
       setState(() => _mostrarErrorPassword = debeMostrarError);
     }
+  }
+
+    void _alCambiarFocoEmail() {
+    if (_emailFocusNode.hasFocus || !mounted) return;
+    final email = _emailController.text.trim();
+    final debeMostrar = email.isEmpty || !email.contains('@');
+    if (debeMostrar != _mostrarErrorEmail) {
+      setState(() => _mostrarErrorEmail = debeMostrar);
+      if (debeMostrar) {
+        _iniciarTimerErrorEmail();
+      }
+    }
+  }
+
+  void _iniciarTimerErrorEmail() {
+    _timerErrorEmail?.cancel();
+    _timerErrorEmail = Timer(const Duration(seconds: 3), () {
+      if (mounted) {
+        setState(() => _mostrarErrorEmail = false);
+      }
+    });
   }
 
   bool get _tieneLongitudMinima => _passController.text.length >= 8;
@@ -98,6 +123,10 @@ class _AuthPageState extends State<AuthPage> {
     _emailController.dispose();
     _passController.dispose();
     _confirmPassController.dispose();
+
+    _timerErrorEmail?.cancel();
+    _emailFocusNode.removeListener(_alCambiarFocoEmail);
+    _emailFocusNode.dispose();
     super.dispose();
   }
 
@@ -139,16 +168,22 @@ class _AuthPageState extends State<AuthPage> {
     final email = _emailController.text.trim();
     setState(() {
       _mostrarErrorEmail = email.isEmpty || !email.contains('@');
+      if (_mostrarErrorEmail) {
+        _iniciarTimerErrorEmail();
+      }
       if (_esRegistro) {
         _mostrarErrorPassword =
             _passController.text.isNotEmpty && !_contrasenaEsSegura;
       }
     });
 
+
     // ✅ Validación manual del email (BLOQUEA el envío si es inválido)
     if (email.isEmpty || !email.contains('@')) return;
 
+
     if (!_formKey.currentState!.validate()) return;
+
 
     if (_esRegistro) {
       if (_validarContrasenaRegistro(_passController.text) != null) {
@@ -161,10 +196,12 @@ class _AuthPageState extends State<AuthPage> {
         return;
       }
 
+
       if (_confirmPassController.text.isEmpty) {
         mostrarSnackBar(context, '❌ Confirma tu contraseña.', isError: true);
         return;
       }
+
 
       if (!_contrasenasCoinciden) {
         mostrarSnackBar(
@@ -176,7 +213,9 @@ class _AuthPageState extends State<AuthPage> {
       }
     }
 
+
     setState(() => _cargando = true);
+
 
     try {
       if (_esRegistro) {
@@ -326,7 +365,10 @@ class _AuthPageState extends State<AuthPage> {
                           if (mounted) {
                             setState(() {
                               _mostrarErrorEmail =
-                                  email.isEmpty || !email.contains('@');
+                              email.isEmpty || !email.contains('@');
+                          if (_mostrarErrorEmail) {
+                            _iniciarTimerErrorEmail();
+                          }
                             });
                           }
                         },

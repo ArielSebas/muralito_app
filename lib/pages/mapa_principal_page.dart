@@ -1156,9 +1156,11 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
     if (mounted) setState(() => _mapaInteractivo = true);
   }
 
-  Future<void> _abrirComoLlegar(double lat, double lng) async {
+    Future<void> _abrirComoLlegar(double lat, double lng) async {
+    // M4: Redefinido según v16 — invoca Google Maps nativo (o navegador
+    // como fallback) sin reemplazar OpenStreetMap como motor del mapa.
     final uri = Uri.parse(
-      'https://www.openstreetmap.org/?mlat=$lat&mlon=$lng#map=18/$lat/$lng',
+      'https://www.google.com/maps/dir/?api=1&destination=$lat,$lng',
     );
 
     final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
@@ -1167,7 +1169,7 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
 
     if (!ok) {
       _mostrarAviso(
-        'No se pudo abrir el mapa. Coordenadas: '
+        'No se pudo abrir Google Maps. Coordenadas: '
         '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}',
         tipo: _TipoAviso.error,
       );
@@ -1582,21 +1584,25 @@ class _MapaPrincipalPageState extends State<MapaPrincipalPage> {
                 panBuffer: 1,
               ),
               MarkerLayer(markers: _buildMarkers()),
-              // Atribución oficial de OSM sin prefijo flutter_map
+              // Atribución oficial de OSM (visibilidad mejorada, opcional)
               Align(
                 alignment: Alignment.bottomLeft,
                 child: ColoredBox(
-                  color: const Color(0xCCFFFFFF),
+                  color: const Color(0xDDF5F5F5), // Ligeramente más opaco
                   child: InkWell(
                     onTap: () => launchUrl(
                       Uri.parse('https://www.openstreetmap.org/copyright'),
                       mode: LaunchMode.externalApplication,
                     ),
                     child: const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       child: Text(
                         '© Colaboradores de OpenStreetMap',
-                        style: TextStyle(fontSize: 11, color: Colors.black87),
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black87,
+                        ),
                       ),
                     ),
                   ),
