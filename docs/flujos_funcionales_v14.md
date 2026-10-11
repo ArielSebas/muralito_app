@@ -1,23 +1,22 @@
 # Muralito App — Flujos Funcionales Actuales
 
-**Versión:** v13
+**Versión:** v14
 **Fecha:** 2026-09-27
-**Actualiza:** Flujos_Funcionales_v12 (26/09/2026).
-**Estado:** MVP funcional avanzado — DT4 y M4 validados mediante ejecución física (`flutter run`). E6 (atribución OSM — visibilidad mejorada, opcional) actualizado.
+**Actualiza:** Flujos Funcionales v13 (26/09/2026).
+**Estado:** MVP funcional avanzado — DT-Firma-Release y DT4, M4, E6 validados mediante ejecución física (`flutter run` + `flutter build apk --release` + `apksigner verify`). Hallazgo reportado con `ñ`/`Ñ` en títulos (no reproducido, pendiente auditoría).
 
-## Resumen de cambios v12 → v13
+## Resumen de cambios v13 → v14
 
-Cerrados / validados (evidencia física `#1`–`#16 PASS`):
-- `DT4` (`email` — `autovalidate` reactivo + `Timer 3s`): `auth_page.dart` + `recuperar_password_page.dart` (`_emailFocusNode.addListener`, `_mostrarErrorEmail`, `_iniciarTimerErrorEmail`, `dispose`).
-- `DT4` (`password` — `DT4-01` — regresión): `mitigada` (`#6`, `#12 PASS`).
-- `M4` (`Cómo llegar` → `Google Maps` nativo): `mapa_principal_page.dart` (`_abrirComoLlegar`: `URI` `https://www.google.com/maps/dir/?api=1`).
-- `E6` (`Atribución OSM` — `visibilidad` `opcional` `mejorada`): `fontSize 13`, `w600`, `padding 8,4`, `fondo 0xDDF5F5F5`; `texto` `© Colaboradores` y `enlace` `copyright` `mantenidos`.
+Cerrados / validados (evidencia física):
+- `DT-Firma-Release` (Keystore + signingConfigs.release + key.properties): Keystore generado, APK release compilado e instalado en Infinix X6886, firma V2/V3 verificada con `apksigner verify`.
+- AGP ajustado a 8.13.0; JDK del proyecto: Temurin 17.0.20.1.
 
-Pendientes (no modificados en v13):
+Pendientes (no modificados en v14):
 - `M6-06` (`GPS` — `NO VERIFICADO`).
-- `Colores` (`~53` refs `deepPurple`), `DT8` (`Storage` `uri.path`), `DT10` (`God-page`), `DT11`/`DT12` (`Repository`), `DT14` (`Tests`).
-- `M9` (`Leaked` — `BLOQUEADO`), `Firma Release` (`Keystore` — `PENDIENTE` `bloqueante`), `SMTP` (`dominio` `propio`), `Data Safety` (`NO DOCUMENTADO`).
-- `M17` (`Borradores` `offline`), `A4` (`Autor` `≠` `Uploader`), `A1.4` (`Historial` `6` `días`).
+- `Colores`, `DT8`, `DT10`, `DT11`/`DT12`, `DT14`.
+- `M9` (`Leaked` — `BLOQUEADO`), `SMTP` (dominio propio), `Data Safety` (NO DOCUMENTADO).
+- `M17` (`Borradores` `offline`), `A4` (`Autor`), `A1.4` (`Historial`).
+- Hallazgo a auditar: títulos con `ñ`/`Ñ` (reportado por el dev, no reproducido de forma controlada).
 
 ## 1. Tipos de usuario
 
@@ -29,6 +28,7 @@ Todas capacidades `espectador`. Registro (`M1`: `contraseña` `segura` + `checkl
 
 ## 2. Inicio de la aplicación
 
+```
 Abrir aplicación
   ↓
 Cargar `.env` (`flutter_dotenv` `^6.0.1`)
@@ -44,11 +44,69 @@ Sesión `activa` / `Sin sesión`
 Cargar `murales` + `perfiles` (`public.murales` `SELECT` + `public.perfiles` `SELECT` — `RLS`)
   ↓
 Renderizar `mapa` (`flutter_map` `^8.3.1`, `TileLayer` `openstreetmap.org`, `userAgentPackageName` `com.muralitoapp.app`, `clustering` `30m`, `zoom` `6`–`18`, `Atribución` `bottomLeft` — `E6` `opcional` `mejorado`)
+```
+
+## 2.5 Despliegue (`v14` — `nuevo`)
+
+### 2.5.1 Desarrollo local (`flutter run`)
+```
+flutter run
+  ↓
+Detecta dispositivo/emulador conectado
+  ↓
+Compila en modo `debug`
+  ↓
+Instala APK debug (sin firma de release; firma automática de debug keystore)
+  ↓
+App abre con hot reload habilitado
+```
+
+### 2.5.2 Build local APK release (testing físico) — `DT-Firma-Release` `VALIDADO`
+```
+flutter build apk --release
+  ↓
+Gradle lee `android/key.properties` (UTF-8 sin BOM, ruta relativa)
+  ↓
+Carga credenciales del keystore
+  ↓
+Firma APK con `signingConfigs.release`
+  ↓
+`√ Built build\app\outputs\flutter-apk\app-release.apk`
+  ↓
+Instalación en dispositivo:
+  - `flutter install --release` (recomendado; usa `adb` automáticamente)
+  - o `adb install -r build\app\outputs\flutter-apk\app-release.apk`
+  ↓
+App abre con firma de release válida (verificable con `apksigner verify --print-certs`)
+```
+
+### 2.5.3 Build local AAB release (subir a Play Store) — `DT-Firma-Release` `VALIDADO`
+```
+flutter build appbundle --release
+  ↓
+Gradle aplica misma lógica que APK release
+  ↓
+`bundletool` empaqueta AAB
+  ↓
+`√ Built build\app\outputs\bundle\release\app-release.aab`
+  ↓
+Listo para subir a Google Play Console
+```
+
+### 2.5.4 Verificación de firma (`apksigner`)
+```
+apksigner verify --print-certs <archivo>.apk
+  ↓
+Salida esperada:
+  - `Verified using v2 scheme (APK Signature Scheme v2): true`
+  - `Verified using v3 scheme (APK Signature Scheme v3): true`
+  - `Signer #1 certificate DN: CN=Muralito, OU=Muralito, O=Muralito, L=Quito, ST=Pichincha, C=EC`
+```
 
 ## 3. Registro e inicio de sesión
 
 ### 3.1 Intentar registrar sin sesión
-`Nuevo Mural` (`FAB`) → `¿Sesión?` (`_haySesion`)
+`Nuevo Muralista` (`FAB`) → `¿Sesión?` (`_haySesion`)
   ├─ Sí → `Flujo` `selección` `foto` (`§6`)
   └─ No → `Diálogo` `autenticación`
               ├─ `Seguir explorando` → `Mapa`
@@ -66,7 +124,7 @@ Renderizar `mapa` (`flutter_map` `^8.3.1`, `TileLayer` `openstreetmap.org`, `use
 `Paso 1` (`_pasoCorreo` — `Form` `_formKeyCorreo`): `Email` (`_emailController`, `_emailFocusNode`: `DT4` — `addListener`, `onChanged`, `onTapOutside`, `_mostrarErrorEmail`, `_iniciarTimerErrorEmail` `3s`) → `Botón` `Enviar código` (`_enviarCodigo`) → `Validación` (`email` `vacío`/`sin @` → `bloqueo` + `Timer`) → `resetPasswordForEmail` → `Éxito`: `_codigoEnviado` = `true` + `_iniciarCooldownReenvio()` (`60s`) → `Error`: `traducirErrorAuth` (`mensaje` `español` + `segundosDeEspera` `si aplica`).
 `Paso 2` (`_pasoCodigoYContrasena` — `Form` `_formKeyCodigo`): `Código` (`_codigoController`: `validator`: `no vacío`) → `Nueva contraseña` (`_passController`, `_passFocusNode`: `DT4-01` — `checklist` `_requisitosContrasena`) → `Confirmar` (`_confirmPassController`: `rojo` `si` `no coincide`) → `Botón` `Restablecer` (`_confirmarRecuperacion`) → `verifyOTP` (`recovery`) + `updateUser` (`password`) → `Éxito`: `SnackBar` (`✅ Contraseña actualizada`) + `Navigator.popUntil(route.isFirst)` → `Error`: `traducirErrorAuth`.
 
-## 4. Recuperación (`M2`) — `v13`
+## 4. Recuperación (`M2`) — `v14`
 
 Ver `§3.4`. `DT4` (`email`) aplicado (`addListener` `_emailFocusNode`, `Timer` `3s`, `dispose`). `DT4-01` (`password` `nueva`) aplicado (`_passFocusNode`, `_requisitosContrasena`).
 
@@ -78,10 +136,14 @@ Ver `§3.4`. `DT4` (`email`) aplicado (`addListener` `_emailFocusNode`, `Timer` 
 
 `Nuevo Mural` (`FAB`) → `Sesión` (`Sí` `→` `flujo`; `No` `→` `_pedirSesionParaNuevoMural` `reanudación`) → `_seleccionarOrigenFoto()` (`modal`: `Tomar fotografía` / `Elegir de galería`) → `XFile` (`cámara` `o` `galería`) → `Cancelación` `limpia` (`return`) → `Onboarding` (`M3`) → `AjustarUbicacionPage` (`pin` `fijo` `centro`, `GPS` `10s` `timeout`, `manual` `mapa`) → `Confirmar` `LatLng` (`inmutable`) → `FormularioMuralModal` (`título`, `descripción`, `previsualización`) → `Guardar` → `_subirMural()` (`_enviar`):
 - `Compresión` (`FlutterImageCompress`: `max` `1200x1200`, `q` `80`, `rotate`, `autoCorrectionAngle`)
-- `Subida` (`Storage`: `uploadBinary`, `nombre` `sanitizado`: `nombreArchivoDesdeTitulo`)
+- `Sanitización` de título: `nombreArchivoDesdeTitulo()` (RegExp `[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ_-]` → `_`, `timestamp`, `.jpg`)
+- `Subida` (`Storage`: `uploadBinary`, `nombre` `sanitizado`)
 - `INSERT` (`PostgreSQL`: `public.murales` — `user_id` = `auth.uid`)
 - `Rollback` (`DT1`): `INSERT` `falla` → `borrarFotoDeStorage` (`archivo` `nuevo`)
-- `Éxito`: `Toast` (`_mostrarAviso`: `"Mural guardado..."`, `exito`, `verde`, `3s`) + `_cargarMurales()` + `_mapController.move` (`zoom` `16`).
+- `Éxito`: `Toast` (`_mostrarAviso`: `"Mural guardado..."`, `exito`, `verde`, `3s`) + `_cargarMurales()` + `_mapController.move` (`zoom` `16`)
+- `Error`: `Toast` (`_mostrarAviso`: mensaje amigable, `error`, `rojo`, `3s`)
+
+> ❓ **Hallazgo a auditar (`v14`)**: durante validación física del APK release, el dev reportó que un título con `ñ`/`Ñ` ("pruebiññaañaña") no se pudo guardar, mientras que sin `ñ` no falló. **No fue reproducido de forma controlada**. Posibles causas (no asumir): `nombreArchivoDesdeTitulo()` real podría no coincidir con la documentación; validación del formulario; codificación en Storage/Supabase; coincidencia con error de red/foto. Requiere reproducción controlada antes de afirmar bug.
 
 ## 7. Control (`M6`) — `intacto` + `DT4` `independiente`
 
@@ -102,7 +164,7 @@ Ver `§3.4`. `DT4` (`email`) aplicado (`addListener` `_emailFocusNode`, `Timer` 
 ## 9. Subida (`Storage` / `Persistencia` / `Políticas`) — `intacto` + `DT4` `independiente`
 
 `Bucket`: `murales` (`plano`).
-`Sanitización`: `nombreArchivoDesdeTitulo()` (`RegExp` `[^...]` → `_`, `timestamp`).
+`Sanitización`: `nombreArchivoDesdeTitulo()` (`RegExp` `[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ_-]` → `_`, `timestamp`).
 `Políticas`: `Listing` (`restringido` `autenticados` — `B1`); `SELECT` (`URLs` `públicas`); `INSERT` (`autenticado`); `DELETE` (`owner` = `auth.uid()`).
 `Rollback` (`DT1`): `Alta` (`INSERT` `falla` → `borrar` `archivo` `nuevo`); `Edición` (`UPDATE` `falla` → `borrar` `archivo` `nuevo`; `Éxito` → `borrar` `archivo` `anterior` `best-effort`).
 `Compresión`: `flutter_image_compress` (`max` `1200x1200`, `q` `80`, `rotate`, `autoCorrectionAngle`).
@@ -129,17 +191,18 @@ Ver `§3.4`. `DT4` (`email`) aplicado (`addListener` `_emailFocusNode`, `Timer` 
   - `Eliminar` (`FilledButton.icon` `red` `delete` → `_eliminarMural` — `diálogo` `confirmación`; `DELETE` `RLS`; `Storage` `borrado` `best-effort`).
   - `Cerrar` (`OutlinedButton`).
 
-## 12. Navegación (`Cómo llegar`) — `M4` (`v13` `actualizado`)
+## 12. Navegación (`Cómo llegar`) — `M4` (`v14` `actualizado`)
 
 `Ficha` (`DraggableScrollableSheet`) → `Botón` `"Cómo llegar"` (`FilledButton.icon`).
-`_abrirComoLlegar` (`mapa_principal_page.dart` — `v13`):
+`_abrirComoLlegar` (`mapa_principal_page.dart` — `v14`):
 ```dart
 final uri = Uri.parse('https://www.google.com/maps/dir/?api=1&destination=$lat,$lng');
 final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
 if (!mounted) return;
 if (!ok) { _mostrarAviso('No se pudo abrir Google Maps. Coordenadas: ...', error); }
-`Estado`: `VALIDADO` (`C PASS`: `Google Maps`; `D PASS`: `Atribución` `intacta`).
-`Restricción` (`v16`, §16): `OpenStreetMap` (`mapa` `interno`, `TileLayer`, `clustering`, `pin`, `Atribución`) `NO SE REEMPLAZA`.
+```
+`Estado`: `VALIDADO` (`C PASS`: `Google Maps`; `D PASS`: `Atribución` `intacta`; probado físicamente en Infinix X6886).
+`Restricción`: `OpenStreetMap` (`mapa` `interno`, `TileLayer`, `clustering`, `pin`, `Atribución`) `NO SE REEMPLAZA`.
 
 ## 13. Edición (`propio` `mural`) — `intacto` + `DT2` `VALIDADO`
 
@@ -153,11 +216,11 @@ if (!ok) { _mostrarAviso('No se pudo abrir Google Maps. Coordenadas: ...', error
   - `Subida`: `uploadBinary` (`Storage`: `bucket` `murales`, `contentType` `image/jpeg`).
   - `URL`: `getPublicUrl` (`nuevaFotoUrl`).
   - `UPDATE`: `PostgreSQL` (`public.murales`: `.eq('id', id).eq('user_id', usuario.id)`) → `título`, `descripción`, `foto_url`.
-  - `Rollback` (`DT2` — `archivo recibido` `mapa_principal_page.dart`):
-    - `UPDATE` `falla`: `borrarFotoDeStorage` (`nuevaFotoUrl`) → `rethrow` (`excepción` `propagada`).
+  - `Rollback` (`DT2`):
+    - `UPDATE` `falla`: `borrarFotoDeStorage` (`nuevaFotoUrl`) → `rethrow`.
     - `UPDATE` `éxito`: `borrarFotoDeStorage` (`mural.fotoUrl` `anterior` — `best-effort`).
-- `Inmutabilidad`: `Latitud`/`Longitud` (`payload` `omisión` `PostgreSQL` — `archivo recibido`: `update` `no` `incluye` `lat`/`lng`).
-`Notificación`: `Toast` (`_mostrarAviso`: `exito` `verde` `3s`: `"Mural [título] actualizado correctamente."`) `o` `error` (`rojo`).
+- `Inmutabilidad`: `Latitud`/`Longitud` (`payload` `omisión` `PostgreSQL`).
+`Notificación`: `Toast` (`_mostrarAviso`: `exito` `verde` `3s` o `error` `rojo`).
 
 ## 14. Eliminación (`propio` `mural`) — `intacto` + `VALIDADO`
 
@@ -168,14 +231,14 @@ if (!ok) { _mostrarAviso('No se pudo abrir Google Maps. Coordenadas: ...', error
 - `DELETE` (`supabase.from('murales').delete().eq('id', mural.id!).eq('user_id', usuario.id)`) — `RLS`.
 - `Storage` (`best-effort`): `borrarFotoDeStorage` (`mural.fotoUrl`).
 - `Recargar`: `_cargarMurales()`.
-- `Notificación`: `Toast` (`exito` `verde` `3s`: `"Mural [título] eliminado correctamente."`).
-- `Error`: `PostgrestException` (`mensajeErrorAmigable` — `DT4` `independiente`).
+- `Notificación`: `Toast` (`exito` `verde` `3s`).
+- `Error`: `PostgrestException` (`mensajeErrorAmigable`).
 
 ## 15. Gestión (`Perfil`) — `intacto` + `DT2` `VALIDADO`
 
 `Acceso`: `AppBar` (`InkWell` — `avatar` `círculo` `radius` `16` + `apodo` `texto`).
 `Modal` (`EditarPerfilModal` — `BottomSheet` `transparente`): `Apodo` (`TextFormField`), `Foto` (`avatar` — `ImagePicker`).
-`Flujo` (`_guardarPerfil` — `archivo recibido`):
+`Flujo` (`_guardarPerfil`):
 - `Sin cambio` (`nuevoAvatarPath` `null`): `UPDATE` (`apodo`) → `VALIDADO`.
 - `Con cambio` (`nuevoAvatarPath` `!= null`):
   - `Compresión`: `FlutterImageCompress` (`minWidth`/`minHeight` `400`, `quality` `80`, `autoCorrectionAngle` `true`).
@@ -184,17 +247,17 @@ if (!ok) { _mostrarAviso('No se pudo abrir Google Maps. Coordenadas: ...', error
   - `URL`: `getPublicUrl`.
   - `UPDATE`: `PostgreSQL` (`public.perfiles`: `.eq('id', perfilAnterior.id)`) → `apodo`, `avatar_url`.
   - `Rollback` (`DT2`): `UPDATE` `falla` → `borrarFotoDeStorage` (`nuevaUrl`); `Éxito` → `borrarFotoDeStorage` (`perfilAnterior.avatarUrl` — `best-effort`).
-`Notificación`: `mostrarSnackBar` (`context`, `"✅ Perfil actualizado correctamente."`, `isError: false`) `o` `mensajeErrorAmigable` (`❌ ...`).
+`Notificación`: `mostrarSnackBar` (`context`, `"✅ Perfil actualizado correctamente."`, `isError: false`) o `mensajeErrorAmigable` (`❌ ...`).
 
 ## 16. Notificaciones (`_AvisoUI`) — `v16` `VALIDADO`
 
-`Modelo` (`mapa_principal_page.dart` — `archivo recibido`):
+`Modelo` (`mapa_principal_page.dart`):
 - `mensaje`: `String`
 - `tipo`: `_TipoAviso` (`exito`, `error`, `info`)
-- `accionLabel`: `String?` (`GPS`: `"Activar"` / `"Ajustes"`)
-- `onAccion`: `VoidCallback?` (`Geolocator.openLocationSettings()` / `openAppSettings()`)
+- `accionLabel`: `String?`
+- `onAccion`: `VoidCallback?`
 
-`Color` (`archivo recibido`):
+`Color`:
 - `exito`: `Colors.green[700]!`
 - `error`: `Colors.red[700]!`
 - `info`: `Colors.deepPurple[700]!`
@@ -204,99 +267,136 @@ if (!ok) { _mostrarAviso('No se pudo abrir Google Maps. Coordenadas: ...', error
 - `error`: `Icons.error_outline`
 - `info`: `Icons.info_outline`
 
-`Comportamiento` (`archivo recibido`):
-- `_mostrarAviso` (`mensaje`, `tipo`, `accionLabel`, `onAccion`, `duracion`: `3s` — `Default`).
+`Comportamiento`:
+- `_mostrarAviso` (`mensaje`, `tipo`, `accionLabel`, `onAccion`, `duracion`: `3s`).
 - `_avisoTimer?.cancel()` (`previo`).
 - `setState` (`_avisoActivo` `nuevo`).
 - `_avisoTimer` (`Timer` `duracion`) → `mounted` → `setState` (`_avisoActivo` = `null`).
-- `Botón` (`TextButton` — `foregroundColor`: `Colors.amberAccent`, `padding`: `horizontal 8`, `visualDensity`: `compact`) → `onPressed`: `setState` (`_avisoActivo` = `null`) + `onAccion?.call()`.
+- `Botón` (`TextButton` — `foregroundColor`: `Colors.amberAccent`) → `onPressed`: `setState` + `onAccion?.call()`.
 
-`Posición` (`Stack` — `archivo recibido`):
+`Posición`:
 - `Positioned` (`top`: `12`, `left`: `16`, `right`: `16`).
 - `Card` (`elevation`: `4`, `color`: `colorFondo`, `shape`: `RoundedRectangleBorder` `radius` `10`).
 
 `No interferencia`:
-- `FAB` (`Nuevo Mural` + `Mi ubicación` — `inferior` `derecho`) `independiente`.
-- `Mapa` (`interactivo` `_mapaInteractivo` — `independiente`).
+- `FAB` (`Nuevo Mural` + `Mi ubicación`) `independiente`.
+- `Mapa` (`interactivo`) `independiente`.
 
-## 17. Regresiones (`v13` — `archivo recibido` + `evidencia física`)
+## 17. Regresiones (`v14` — `archivo recibido` + `evidencia física`)
 
-- `Atribución` (`v16` + `E6` `opcional`) + `controles` (`FAB`, `clustering`): `PASS` (`mapa` `gestos` `intactos`; `Atribución` `bottomLeft` `visible`; `clustering` `30m` `funciona`).
-- `Flujo` (`Cámara`/`Galería` — `v16`): `PASS` (`_seleccionarOrigenFoto` `funcional`; `cancelación` `limpia`; `galería` `completa`).
-- `Avisos` (`v16` — `Toast` `superior`): `PASS` (`_mostrarAviso` `funciona`; `GPS` `interactivo`; `3s` `auto-cierre`).
-- `Identidad` (`v16` — `namespace` `com.muralitoapp.app`): `PASS`.
-- `DT4` (`v17` — `email` `autovalidate` `reactivo` + `Timer` `3s`): `PASS` (`#1`–`#7` `auth`; `#8`–`#13` `recuperación`; `Siguiente` `visible`; `Timer` `funciona`; `password` `DT4-01` `sin regresión` `#6`, `#12`).
-- `M4` (`v17` — `Cómo llegar` → `Google Maps`): `PASS` (`A`: `botón` `existe`; `B`: `mapa` `OSM` `funciona`; `C`: `Google Maps` `abre`; `D`: `Atribución` `intacta`; `E`: `clustering`/`ficha`/`FAB`/`Avisos`/`Auth` `intacto`).
-- `E6` (`v17` — `visibilidad` `mejorada` `opcional`): `PASS` (`funcional` `intacto`; `font` `13` `w600` `visible`; `fondo` `0xDDF5F5F5` `visible`; `click` `copyright` `funciona`).
+- `Atribución` (`v16` + `E6` `opcional`) + `controles` (`FAB`, `clustering`): `PASS`.
+- `Flujo` (`Cámara`/`Galería`): `PASS`.
+- `Avisos`: `PASS`.
+- `Identidad`: `PASS`.
+- `DT4`: `PASS` (`#1`–`#13`; probado físicamente).
+- `M4`: `PASS` (`A`–`E`; probado físicamente).
+- `E6`: `PASS`.
+- `DT-Firma-Release`: `PASS` (APK release compilado, instalado en Infinix X6886, firma V2/V3 verificada con `apksigner`).
 
-## 18. Funcionalidades (`v13` — `archivo recibido` + `VALIDADO` `físico`)
+## 18. Funcionalidades (`v14` — `archivo recibido` + `VALIDADO` `físico`)
 
 - `Mapa` (`OSM` + `clustering` `30m` + `zoom` `6`–`18`) — `VALIDADO`.
 - `Atribución` (`visible` + `clickable` + `opcional` `mejorado`) — `VALIDADO`.
-- `Modo espectador` (`público`, `sin bloqueo`) — `VALIDADO`.
-- `Avisos` (`unificado` `superior`, `exito`/`error`/`info` `+ GPS` `interactivo`, `3s`) — `VALIDADO`.
-- `Registro` (`M1` `contraseña` `segura` + `checklist`; `confirmación` `correo`; `trigger` `perfil`) — `VALIDADO`.
-- `Login`/`Logout` (`dinámico`, `AppBar`, `toast`) — `VALIDADO`.
-- `Contraseña` (`segura` + `feedback` `reactivo` `DT4-01`) — `VALIDADO`.
-- `Recuperación` (`OTP` `M2` + `email` `DT4` `reactivo` `Timer`) — `VALIDADO`.
+- `Modo espectador` — `VALIDADO`.
+- `Avisos` — `VALIDADO`.
+- `Registro` (`M1`) — `VALIDADO`.
+- `Login`/`Logout` — `VALIDADO`.
+- `Contraseña` (`M1` + `DT4-01`) — `VALIDADO`.
+- `Recuperación` (`M2` + `DT4`) — `VALIDADO`.
 - `Perfil` (`avatar` `DT2` + `trigger`) — `VALIDADO`.
-- `Alta` (`selección` `foto` `Cámara`/`Galería` — `v16`; `independiente` `DT4`) — `VALIDADO`.
+- `Alta` (`selección` `foto` + `rollback` `DT1`) — `VALIDADO` (con hallazgo pendiente sobre `ñ`/`Ñ`).
 - `Compresión` + `rotación` `EXIF` — `VALIDADO`.
 - `Onboarding` (`M3`) — `VALIDADO`.
-- `Pin` (`GPS` `M5` — `no bloqueante` `10s`, `fijo`, `manual`) — `VALIDADO`.
+- `Pin` (`GPS` `M5`) — `VALIDADO`.
 - `Inmutabilidad` (`coordenadas`) — `VALIDADO`.
 - `CRUD` (`edición` `rollback` `DT2`; `eliminación` `Storage`) — `VALIDADO`.
-- `Sanitización` (`Storage`) — `VALIDADO`.
+- `Sanitización` (`Storage`) — `VALIDADO` (con hallazgo pendiente sobre `ñ`/`Ñ`).
 - `Clustering` (`30m` + `lista`) — `VALIDADO`.
 - `A3` (`Subido por`) — `VALIDADO`.
-- `Cómo llegar` (`M4` — `Google Maps` `nativo`) — `VALIDADO` (`C PASS`; `mapa` `OSM` `B PASS`; `Atribución` `D PASS`; `E PASS`).
+- `Cómo llegar` (`M4` — `Google Maps`) — `VALIDADO`.
 - `Restricción` (`B1` — `Storage`) — `VALIDADO`.
-- `RLS` (`murales`/`perfiles`) — `VALIDADO` (`funcional`; `SQL` `archivo` `.sql` `NO VERIFICADO`).
+- `RLS` (`murales`/`perfiles`) — `VALIDADO` (funcional; SQL NO VERIFICADO).
 - `Identidad` (`namespace` `com.muralitoapp.app`) — `VALIDADO`.
 - `Atribución` (`userAgentPackageName`) — `VALIDADO`.
+- **`Firma Release` (`DT-Firma-Release` — Keystore + signingConfig + APK/AAB release)** — `VALIDADO` (`v14`, nuevo).
 
-## 19. No verificados / Pendientes (`v13` — `archivo recibido` `intacto` `salvo` `DT4`/`M4`/`E6`)
+## 19. No verificados / Pendientes (`v14` — `archivo recibido` `intacto` `salvo` Firma Release)
 
-`M6-06` (`GPS` — `sin señal` `ni` `última` `ubicación` `conocida`): `❓ NO VERIFICADO` (`hardware` `no aislado`).
+`M6-06` (`GPS` — `sin señal` `ni` `última` `ubicación` `conocida`): `❓ NO VERIFICADO`.
 `Colores` (`hardcodeados` — `Colors.deepPurple` `~53` `referencias` `8` `archivos`): `⏳ PENDIENTE`.
-`DT8` (`Storage` — `uri.pathSegments.last` `borrarFotoDeStorage`): `⚠️ RIESGO` (`plano` `funciona`; `subcarpetas` `romperían`).
+`DT8` (`Storage` — `uri.pathSegments.last` `borrarFotoDeStorage`): `⚠️ RIESGO`.
 `DT10` (`God-page` — `mapa_principal_page.dart` `acoplamiento`): `⚠️ RIESGO`.
 `DT11`/`DT12` (`Repository` — `ausencia`): `⏳ PENDIENTE`.
 `DT14` (`Tests` `automatizados` — `flutter test`): `⏳ PENDIENTE`.
-`M9` (`Leaked Passwords` — `HIBP`): `⛔ BLOQUEADO` (`Supabase Pro`).
-`M17` (`Borradores` `offline`): `⏳ PENDIENTE` (`post-v1`).
-`A4` (`Uploader` `≠` `Artista`): `⏳ PENDIENTE` (`producto`).
-`A1.4` (`Historial` `fotos` — `6` `días`): `⏳ PENDIENTE` (`producto`).
-`Firma Release` (`Keystore` `.jks` — `release` `signingConfig`): `⏳ PENDIENTE` (`bloqueante` `Play Store` — `Mejoras v16`, §7; `Documentación Técnica v17`, §6).
-`SMTP` (`Resend` — `dominio` `propio` — `SPF`/`DKIM`): `⏳ PENDIENTE` (`evaluadores`).
-`Data Safety` (`Play Store` — `ficha` `seguridad` `datos`): `❓ NO DOCUMENTADO` (`archivo recibido` `no menciona`; `Mejoras v16` `no menciona`).
-`Supabase SQL` (`RLS` `CREATE POLICY`, `trigger` `manejar_nuevo_usuario`, `políticas` `Storage`): `❓ NO VERIFICADO` (`archivo .sql` `no disponible`; `consola` `no accesible` `en esta sesión` — `Handoff Técnico`, §0, §7).
+`M9` (`Leaked Passwords` — `HIBP`): `⛔ BLOQUEADO`.
+`M17` (`Borradores` `offline`): `⏳ PENDIENTE`.
+`A4` (`Uploader` `≠` `Artista`): `⏳ PENDIENTE`.
+`A1.4` (`Historial` `fotos` — `6` `días`): `⏳ PENDIENTE`.
+`SMTP` (`Resend` — `dominio` `propio` — `SPF`/`DKIM`): `⏳ PENDIENTE`.
+`Data Safety` (`Play Store` — `ficha` `seguridad` `datos`): `❓ NO DOCUMENTADO`.
+`Supabase SQL` (`RLS` `CREATE POLICY`, `trigger` `manejar_nuevo_usuario`, `políticas` `Storage`): `❓ NO VERIFICADO`.
+`Hallazgo a auditar`: títulos con `ñ`/`Ñ` (reportado por el dev, no reproducido de forma controlada). `❓ PENDIENTE`.
 
-## 20. Backlog (`v13` — `Mejoras v16` `intacto`)
+## 20. Backlog (`v14`)
 
-`Hecho` (`no reabrir` — `v16` `VALIDADO`): `Atribución OSM`, `Selector Foto`, `Avisos`, `Identidad Android`, `M3`, `M5`, `B1`, `M6` (`parcial`), `DT4-01`, `Sanitización`, `Identidad`, `A3`.
-`Cerrado` (`v17` — `VALIDADO` `físico`): `DT4` (`email` `autovalidate` + `Timer`), `M4` (`Cómo llegar` `Google Maps`), `E6` (`Atribución` `opcional` `mejorado`).
-`Pendiente` (`v1` — `próximo` `recomendado`): `Firma Release` (`Keystore`).
-`Pendiente` (`v1` — `estilo`): `Colores` (`hardcodeados`).
-`Pendiente` (`post-v1`): `M17`, `A4`, `A1.4`, `B2`–`B7`.
-`Pendiente` (`no ahora`): `DT5`–`DT9` (`bajo nivel` — `pospuesto`), `DT10`–`DT12` (`desacoplamiento` — `no ahora`), `DT14`–`DT18` (`testing`/`escalabilidad`).
+`Hecho` (`no reabrir`):
+- `Atribución OSM`, `Selector Foto`, `Avisos`, `Identidad Android`, `M3`, `M5`, `B1`, `M6` (`parcial`), `DT4-01`, `Sanitización` (con hallazgo pendiente), `Identidad`, `A3`.
+- `DT4` (`email` `autovalidate` + `Timer`).
+- `M4` (`Cómo llegar` `Google Maps`).
+- `E6` (`Atribución` `opcional` `mejorado`).
+- **`DT-Firma-Release` (`Firma Release` — `v14`)**: Keystore + signingConfig + APK/AAB release + verificado físicamente.
 
-## 21. Control (`v13` — `archivo recibido` + `evidencia física`)
+`Pendiente` (`v1` — `próximo` `recomendado`):
+- **`Data Safety` (`Play Store`)** — Requisito previo a publicación. No documentado.
 
-`Documento`: `Flujos Funcionales v13` (`fecha` `actual`) — `reemplaza` `v12` (`26/09/2026`).
-`Archivo recibido` (`mapa_principal_page.dart` — `modificado` `v13`):
-- `_abrirComoLlegar`: `URI` (`https://www.google.com/maps/dir/?api=1`) — `M4` `VALIDADO`.
-- `Atribución`: `bottomLeft` (`opcional`: `fontSize` `13`, `w600`, `padding` `8,4`, `fondo` `0xDDF5F5F5`) — `E6` `VALIDADO` (`opcional`).
-- `Restante`: `mapa` (`flutter_map` `OSM` `intacto`), `clustering` (`30m` `intacto`), `FAB` (`Nuevo Mural` + `Mi ubicación` `intacto`), `Ficha` (`DraggableScrollableSheet` `intacto`), `Avisos` (`_AvisoUI` `intacto`).
-`Archivos recibidos` (`intactos` `v13` — `no modificados`):
-- `auth_page.dart`: `DT4` (`email`: `addListener` `_emailFocusNode`, `Timer` `3s`, `dispose`) — `VALIDADO`.
-- `recuperar_password_page.dart`: `DT4` (`email`: `addListener`, `Timer`, `dispose`) — `VALIDADO`.
-- `helpers.dart`: `nombreArchivoDesdeTitulo`, `borrarFotoDeStorage`, `mensajeErrorAmigable`, `traducirErrorAuth`, `mostrarSnackBar`, `conDialogoCarga` — `intacto`.
+`Pendiente` (`v1` — `producto`):
+- **`M17` (`Borradores` `offline`)** — Detectado durante validación física: si falla la subida, recuperar el borrador (título/descripción/foto/ubicación/rotación) para no repetir trabajo.
+
+`Pendiente` (`v1` — `estilo`):
+- `Colores` (`hardcodeados`).
+
+`Pendiente` (`post-v1`):
+- `A4`, `A1.4`, `B2`–`B7`.
+
+`Pendiente` (`auditoría`):
+- **Hallazgo**: títulos con `ñ`/`Ñ` — reproducción controlada antes de afirmar bug.
+
+`Pendiente` (`no ahora`):
+- `DT5`–`DT9`, `DT10`–`DT12`, `DT14`–`DT18`.
+
+`Pendiente` (`publicación`):
+- `SMTP` (`Resend` — `dominio` `propio`).
+
+## 21. Control (`v14`)
+
+`Documento`: `Flujos Funcionales v14` (`fecha` `actual`) — `reemplaza` `v13` (26/09/2026).
+`Archivo recibido` (`mapa_principal_page.dart` — `intacto` en `v14` salvo `M4`/`E6` ya documentados en `v13`):
+- `resto` (`mapa`, `clustering`, `FAB`, `Ficha`, `Avisos`) `intacto`.
+
+`Archivos recibidos` (`intactos` `v14` — `no modificados`):
+- `auth_page.dart`: `DT4` `VALIDADO`.
+- `recuperar_password_page.dart`: `DT4` `VALIDADO`.
+- `helpers.dart`: `nombreArchivoDesdeTitulo`, `borrarFotoDeStorage`, `mensajeErrorAmigable`, `traducirErrorAuth`, `mostrarSnackBar`, `conDialogoCarga` — `intacto` (con hallazgo pendiente).
 - `models/`: `mural.dart`, `perfil.dart` — `intacto`.
 - `widgets/`: `dialogo_carga.dart`, `formulario_mural_modal.dart`, `editar_mural_modal.dart`, `editar_perfil_modal.dart`, `ajustar_ubicacion_page.dart`, `onboarding_ubicacion_dialog.dart` — `intacto`.
 - `pubspec.yaml`: `url_launcher` (`^6.3.1`), `flutter_map` (`^8.3.1`), `supabase_flutter` (`^2.17.2`), etc. — `intacto`.
-`Estado`: `DT4` (`VALIDADO` `físico`), `M4` (`VALIDADO` `físico`), `E6` (`VALIDADO` `opcional`), `Flujos` (`archivo recibido` `mapa_principal_page.dart` `funcional` `PASS` `E`; `auth` `VALIDADO` `#1`–`#13`; `regresión` `PASS`).
-`Siguiente objetivo` (`recomendado`): `Firma Release` (`Keystore` `.jks` — `Mejoras v16`, §7; `Documentación Técnica v17`, §6).
-`Siguiente` (`alternativo` — `estilo`): `Colores` (`hardcodeados` — `Mejoras v16`, §6).
 
-Nota final (`v13`): `Flujos_Funcionales_v12` (`26/09/2026`) → `Flujos_Funcionales_v13` (`fecha` `actual`). `DT4`: `CERRADO` (`VALIDADO` `físico`: `addListener` `_emailFocusNode`, `Timer` `3s`, `dispose`; `Siguiente` `visible`; `#1`–`#13 PASS`). `M4`: `CERRADO` (`VALIDADO` `físico`: `_abrirComoLlegar` `URI` `Google Maps`; `mapa` `OSM` `B PASS`; `Atribución` `D PASS`; `A`–`E PASS`). `E6`: `ACTUALIZADO` (`opcional` `aplicado`: `fontSize` `13`, `w600`, `padding` `8,4`, `fondo` `0xDDF5F5F5`; `funcional` `intacto`; `texto`/`click` `mantenido`). `Pendiente`: `M6-06` (`NO VERIFICADO`); `Colores`/`DT8`/`DT10`/`DT11`/`DT12`/`DT14` (`RIESGO`/`PENDIENTE`); `M9` (`BLOQUEADO`); `Firma` (`PENDIENTE` — `recomendado`); `SMTP` (`PENDIENTE`); `Data Safety` (`NO DOCUMENTADO`); `M17`/`A4`/`A1.4` (`PENDIENTE`). `Estado`: `MVP` `avanzado`; `próximo` (`recomendado`): `Firma Release`. `No inventado`: `todas` `afirmaciones` `se respaldan` `en los archivos recibidos` (`mapa_principal_page.dart`, `auth_page.dart`, `recuperar_password_page.dart`, `helpers.dart`, `pubspec.yaml`) `y en la evidencia física reportada` (`#1`–`#16 PASS`).
+`Archivos recibidos` (`modificados` en sesión Firma Release — `v14`):
+- `android/app/build.gradle.kts`: `signingConfigs.release` con credenciales de `key.properties`.
+- `android/key.properties`: `nuevo` (UTF-8 sin BOM, ruta relativa del keystore).
+- `android/app/muralito-release-key.jks`: `nuevo` (Keystore RSA 2048, validez 10000 días, alias `muralito`).
+- `android/settings.gradle.kts`: AGP ajustado a 8.13.0.
+- `android/gradle.properties`: `org.gradle.java.home` apuntando a Temurin 17.0.20.1; `android.newDsl=true`.
+- `.gitignore`: `android/key.properties`, `*.jks` (protegidos).
+
+`Estado`:
+- `DT-Firma-Release` (`VALIDADO` físico).
+- `DT4` (`VALIDADO` físico).
+- `M4` (`VALIDADO` físico).
+- `E6` (`VALIDADO`).
+- `Flujos` (archivo recibido funcional; hallazgo pendiente).
+- `Siguiente objetivo` (`recomendado`): `Data Safety` (`Play Store`).
+- `Siguiente` (`alternativo` — producto): `M17` (`Borradores` `offline`).
+- `Auditoría` (`pendiente`): títulos con `ñ`/`Ñ`.
+
+Nota final (`v14`): `Flujos_Funcionales_v13` (26/09/2026) → `Flujos_Funcionales_v14` (fecha actual). `DT-Firma-Release`: CERRADO (Keystore generado, signingConfig.release configurado, APK/AAB release compilados, firma V2/V3 verificada con `apksigner`, probado en Infinix X6886). `DT4`: CERRADO. `M4`: CERRADO. `E6`: ACTUALIZADO. `Pendiente`: `M6-06` (NO VERIFICADO); `Colores`/`DT8`/`DT10`/`DT11`/`DT12`/`DT14` (RIESGO/PENDIENTE); `M9` (BLOQUEADO); `SMTP` (PENDIENTE); `Data Safety` (NO DOCUMENTADO); `M17`/`A4`/`A1.4` (PENDIENTE); hallazgo `ñ`/`Ñ` (auditoría pendiente). `Estado`: MVP avanzado; próximo (recomendado): Data Safety. `No inventado`: todas las afirmaciones se respaldan en los archivos recibidos y en la evidencia física reportada (`#1`–`#16 PASS`; `flutter build apk --release`: √ Built; `apksigner verify`: Verified v2/v3).

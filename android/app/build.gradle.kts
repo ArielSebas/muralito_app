@@ -1,3 +1,7 @@
+import java.util.Properties
+import java.io.File
+import org.gradle.api.GradleException
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
@@ -28,11 +32,28 @@ android {
         versionName = flutter.versionName
     }
 
+    // 🔐 Muralito - Firma Release: lee credenciales desde key.properties (NO commiteado)
+    val keystorePropertiesFile = rootProject.file("key.properties")
+    val keystoreProperties = Properties()
+    if (keystorePropertiesFile.exists()) {
+        keystoreProperties.load(keystorePropertiesFile.inputStream())
+    } else {
+        throw GradleException("Muralito: key.properties no encontrado en ${keystorePropertiesFile.absolutePath}")
+    }
+
+    signingConfigs {
+        create("release") {
+            keyAlias = keystoreProperties.getProperty("keyAlias")
+            keyPassword = keystoreProperties.getProperty("keyPassword")
+            storeFile = file(keystoreProperties.getProperty("storeFile"))
+            storePassword = keystoreProperties.getProperty("storePassword")
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // ✅ Muralito - Firma Release: ahora usa el keystore propio
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 }

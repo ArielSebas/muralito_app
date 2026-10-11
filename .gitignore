@@ -50,3 +50,7 @@ app.*.map.json
 
 .env
 *.env
+
+# Muralito - Firma Release (NO subir secretos a Git)
+android/key.properties
+*.jks
